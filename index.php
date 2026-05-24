@@ -883,12 +883,19 @@ function apply_clean_route(): void {
         $_GET['lang'] = $route_lang;
         $_SERVER['LB_LANG_FROM_PATH'] = '1';
     }
-    if (count($raw_parts) === 4 && $raw_parts[0] === '_lb' && $raw_parts[1] === 'og') {
+    if (count($raw_parts) === 4 && $raw_parts[0] === '_lb' && in_array($raw_parts[1], ['thumb', 'large', 'og'], true)) {
         $album = safe_seg($raw_parts[2]);
         $file = safe_seg($raw_parts[3]);
         if ($album !== null && $file !== null) {
             $_GET['a'] = $album;
-            $_GET['og_image'] = $file;
+            if ($raw_parts[1] === 'thumb') {
+                $_GET['t'] = $file;
+                $_GET['ar'] = '1';
+            } elseif ($raw_parts[1] === 'large') {
+                $_GET['i'] = $file;
+            } else {
+                $_GET['og_image'] = $file;
+            }
         }
         return;
     }
@@ -2122,16 +2129,16 @@ function albums(): array {
 }
 
 function thumb_url_ar(string $album, string $file): string {
-    $url = '?a=' . urlencode($album) . '&t=' . urlencode($file) . '&ar=1';
+    $url = '_lb/thumb/' . path_url_encode($album) . '/' . path_url_encode($file);
     $src = source_image_path($album, $file);
-    if (is_file($src)) $url .= '&v=' . derivative_url_version(thumb_cache_key($src));
+    if (is_file($src)) $url .= '?v=' . derivative_url_version(thumb_cache_key($src));
     return public_url($url);
 }
 
 function image_url(string $album, string $file): string {
-    $url = '?a=' . urlencode($album) . '&i=' . urlencode($file);
+    $url = '_lb/large/' . path_url_encode($album) . '/' . path_url_encode($file);
     $src = source_image_path($album, $file);
-    if (is_file($src)) $url .= '&v=' . derivative_url_version(large_cache_key($src));
+    if (is_file($src)) $url .= '?v=' . derivative_url_version(large_cache_key($src));
     return public_url($url);
 }
 
@@ -2150,7 +2157,7 @@ function image_clean_url(string $album, string $file, ?string $lang = null): str
 }
 
 function og_image_url(string $album, string $file): string {
-    return base_url() . '/?a=' . urlencode($album) . '&og_image=' . urlencode($file);
+    return absolute_url(public_url('_lb/og/' . path_url_encode($album) . '/' . path_url_encode($file)));
 }
 
 function canonical_album_url(string $album): string {
