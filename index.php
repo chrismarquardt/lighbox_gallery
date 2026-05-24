@@ -2388,7 +2388,7 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .up-progress{height:4px;background:#333;margin-top:14px;overflow:hidden}
 .up-progress span{display:block;height:100%;width:0;background:#fff;transition:width .2s}
 .up-status{font-size:.66rem;line-height:1.45;letter-spacing:normal;text-transform:none;margin-top:10px;min-height:1.2em;opacity:.65}
-.album-h1-row{display:flex;align-items:center;justify-content:center;gap:10px;padding:2rem 24px .2rem;text-align:center}.album-h1-row--nodesc{padding-bottom:1.5rem}
+.album-h1-row{display:flex;align-items:center;justify-content:center;gap:10px;padding:2rem 24px .8rem;text-align:center}.album-h1-row--nodesc{padding-bottom:1.5rem}
 .album-h1{font-size:1rem;font-weight:700;letter-spacing:.12em;margin:0;text-align:center}
 .album-desc{max-width:50%;padding:0 24px 1.5rem;line-height:1.6;text-transform:none;letter-spacing:normal}
 @media(max-width:520px){.album-desc{width:100%;max-width:none;padding-left:16px;padding-right:16px}}
