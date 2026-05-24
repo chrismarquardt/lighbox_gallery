@@ -1988,14 +1988,14 @@ function thumb_url_ar(string $album, string $file): string {
     $url = '?a=' . urlencode($album) . '&t=' . urlencode($file) . '&ar=1';
     $src = source_image_path($album, $file);
     if (is_file($src)) $url .= '&v=' . derivative_url_version(thumb_cache_key($src));
-    return $url;
+    return public_url($url);
 }
 
 function image_url(string $album, string $file): string {
     $url = '?a=' . urlencode($album) . '&i=' . urlencode($file);
     $src = source_image_path($album, $file);
     if (is_file($src)) $url .= '&v=' . derivative_url_version(large_cache_key($src));
-    return $url;
+    return public_url($url);
 }
 
 function album_url(string $album): string {
@@ -3081,7 +3081,7 @@ document.addEventListener('DOMContentLoaded',function(){
 function lbInstallAnalytics(ctx){
   if(!LB_ANALYTICS_ENABLED||!ctx||window.lbAnalyticsInstalled)return;
   window.lbAnalyticsInstalled=true;
-  var endpoint='?analytics_event=1';
+  var endpoint=<?= json_encode(public_url('?analytics_event=1'), JSON_UNESCAPED_SLASHES) ?>;
   var now=function(){return (performance&&performance.now)?performance.now():Date.now();};
   function randId(){var a=new Uint8Array(18),c=window.crypto||window.msCrypto;if(c&&c.getRandomValues)c.getRandomValues(a);else for(var i=0;i<a.length;i++)a[i]=Math.floor(Math.random()*256);return Array.from(a,function(x){return (x%36).toString(36);}).join('');}
   function getStore(k){try{return localStorage.getItem(k)||'';}catch(e){return '';}}
@@ -4721,6 +4721,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo 'var SHARE_INDEX=' . ($share_index === false ? '-1' : (string)(int)$share_index) . ';';
     echo 'var ALBUM_PAGE_URL=' . json_encode(album_url($album), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_BACK_URL=' . json_encode(isset($_GET['from']) && $_GET['from'] === 'all' ? public_url('?all') : public_url(), JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var LARGE_GEN_URL=' . json_encode(public_url('?gen_large=1'), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var cur=0;';
     echo 'lbInstallAnalytics({viewType:"album",album:ALBUM,albumTitle:' . json_encode($name, JSON_UNESCAPED_SLASHES) . ',files:FILES,currentPhoto:function(){return FILES[cur]||"";}});';
     echo <<<'JS'
@@ -4738,7 +4739,7 @@ function pumpLargeQueue(){
   var job=largeQueue.shift();
   if(!job)return;
   largeActive=true;
-  var url='?gen_large=1&a='+encodeURIComponent(ALBUM)+'&f='+encodeURIComponent(FILES[job.i]);
+  var url=LARGE_GEN_URL+'&a='+encodeURIComponent(ALBUM)+'&f='+encodeURIComponent(FILES[job.i]);
   lbDebug('[Lightbox] generating large image',url);
   fetch(url,{cache:'no-store',credentials:'same-origin'}).then(function(r){
     lbDebug('[Lightbox] large generation response',r.status,r.statusText);
@@ -5389,6 +5390,7 @@ function page_series(string $id): void {
     echo 'var SHARE_INDEX=-1;';
     echo 'var ALBUM_PAGE_URL=' . json_encode(series_url($id), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_BACK_URL=' . json_encode(public_url(), JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var LARGE_GEN_URL=' . json_encode(public_url('?gen_large=1'), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var cur=0;';
     echo 'lbInstallAnalytics({viewType:"series",series:' . json_encode($id, JSON_UNESCAPED_SLASHES) . ',seriesTitle:' . json_encode($loc_title, JSON_UNESCAPED_SLASHES) . ',albums:ALBUMS,files:FILES,currentAlbum:function(i){return ALBUMS[i]||"";},currentPhoto:function(){return FILES[cur]||"";}});';
     echo <<<'JS'
@@ -5411,7 +5413,7 @@ function pumpLargeQueue(){
   while(largeActive<largeLimit&&largeQueue.length){
   var job=largeQueue.shift();
   largeActive++;
-  var url='?gen_large=1&a='+encodeURIComponent(ALBUMS[job.i])+'&f='+encodeURIComponent(FILES[job.i]);
+  var url=LARGE_GEN_URL+'&a='+encodeURIComponent(ALBUMS[job.i])+'&f='+encodeURIComponent(FILES[job.i]);
   lbDebug('[Lightbox] generating large image',url);
   fetch(url,{cache:'no-store',credentials:'same-origin'}).then(function(r){
     lbDebug('[Lightbox] large generation response',r.status,r.statusText);
