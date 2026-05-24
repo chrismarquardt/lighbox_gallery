@@ -116,10 +116,10 @@ different from the intended design.
 
 ## Admin Setup
 
-Open admin mode by adding `?admin` to the gallery URL:
+Open admin mode at `/admin`:
 
 ```text
-https://example.com/gallery/?admin
+https://example.com/gallery/admin
 ```
 
 On first access, create a long unique password. Lightbox stores only a one-way
@@ -144,7 +144,7 @@ Admin mode enables:
 - optional local analytics dashboard.
 
 To reset the admin password, create an empty `reset-pass.txt` file beside
-`index.php`, then open `?admin`. Lightbox removes the reset file, deletes the
+`index.php`, then open `/admin`. Lightbox removes the reset file, deletes the
 stored hash, and shows the password setup screen again.
 
 ## Curated Series
@@ -162,7 +162,7 @@ the bottom with links back to the originating album or albums. The home page
 also includes a configurable All Photos link that opens the complete album
 overview for visitors who want to browse everything.
 
-Admins create and manage series from `?admin`: create a series, open an album,
+Admins create and manage series from `/admin`: create a series, open an album,
 enable Series Selection Mode, select the images that belong to the series, then
 return to the series editor to set order, title, description, hero image,
 visibility, and sources.
@@ -296,6 +296,11 @@ accepted:
 For SEO-style public links, Lightbox now generates:
 
 ```text
+/all
+/admin
+/admin/analytics
+/admin/series/<series-id>
+/sitemap.xml
 /series/<series-slug>
 /album/<album-slug>
 /album/<album-slug>/photo/<photo-slug>
@@ -305,7 +310,8 @@ Clean slugs are generated from the visible series title, album title, and photo
 filename stem, and are made unique within the gallery section they belong to.
 Lightbox generates extensionless canonical URLs; inbound `.html` variants are
 accepted as aliases. Query-string URLs such as `?a=<album>`,
-`?a=<album>&share_image=<file>`, and `?s=s1` continue to work as fallbacks.
+`?a=<album>&share_image=<file>`, `?all`, `?admin`, and `?s=s1` continue to work
+as fallbacks.
 
 ## Local Analytics
 

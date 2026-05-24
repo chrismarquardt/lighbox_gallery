@@ -57,9 +57,12 @@ apply_clean_route();
 // ─── language ────────────────────────────────────────────────────────────────
 if (isset($_GET['lang']) && in_array($_GET['lang'], ['en', 'de'], true)) {
     setcookie('lb_lang', $_GET['lang'], ['expires' => time() + 60*60*24*365, 'path' => '/', 'samesite' => 'Lax', 'secure' => true, 'httponly' => false]);
-    $rp = $_GET;
-    unset($rp['lang']);
-    header('Location: ' . (empty($rp) ? './' : '?' . http_build_query($rp)));
+    $uri = (string)($_SERVER['REQUEST_URI'] ?? './');
+    $path = (string)(parse_url($uri, PHP_URL_PATH) ?: './');
+    $query = (string)(parse_url($uri, PHP_URL_QUERY) ?? '');
+    parse_str($query, $params);
+    unset($params['lang']);
+    header('Location: ' . $path . ($params ? '?' . http_build_query($params) : ''));
     exit;
 }
 
@@ -173,7 +176,7 @@ if (isset($_GET['admin_status'])) {
     exit;
 }
 if (isset($_GET['analytics_admin'])) {
-    if (!is_admin()) { header('Location: ./?admin'); exit; }
+    if (!is_admin()) { header('Location: ' . admin_url()); exit; }
     $range = (int)($_GET['range'] ?? 7);
     page_admin_analytics(in_array($range, [7, 30], true) ? $range : 7);
     exit;
@@ -611,7 +614,7 @@ if (isset($_GET['create_series']) && is_admin()) {
         'bg_color' => $sbg,
     ]);
     save_series_data($sdata);
-    echo json_encode(['ok' => true, 'id' => $id, 'edit' => '?edit_series=' . $id], JSON_UNESCAPED_SLASHES);
+    echo json_encode(['ok' => true, 'id' => $id, 'edit' => series_editor_url($id)], JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -855,7 +858,7 @@ function clean_route_segments_from_path(string $path): array {
 
 function apply_clean_route(): void {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-    if ($method !== 'GET' && $method !== 'HEAD') return;
+    if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) return;
     $route_path = '';
     if (isset($_GET['lb_path'])) {
         $route_path = (string)$_GET['lb_path'];
@@ -872,6 +875,26 @@ function apply_clean_route(): void {
             $_GET['a'] = $album;
             $_GET['og_image'] = $file;
         }
+        return;
+    }
+    if (count($raw_parts) === 1 && $raw_parts[0] === 'all') {
+        $_GET['all'] = '1';
+        return;
+    }
+    if (count($raw_parts) === 1 && $raw_parts[0] === 'admin') {
+        $_GET['admin'] = '1';
+        return;
+    }
+    if (count($raw_parts) === 2 && $raw_parts[0] === 'admin' && $raw_parts[1] === 'analytics') {
+        $_GET['analytics_admin'] = '1';
+        return;
+    }
+    if (count($raw_parts) === 3 && $raw_parts[0] === 'admin' && $raw_parts[1] === 'series') {
+        $_GET['edit_series'] = $raw_parts[2];
+        return;
+    }
+    if (count($raw_parts) === 1 && in_array($raw_parts[0], ['sitemap', 'sitemap.xml'], true)) {
+        $_GET['sitemap'] = '1';
         return;
     }
     if (count($raw_parts) === 2 && $raw_parts[0] === 'series') {
@@ -1077,6 +1100,27 @@ function resolve_photo_seo_slug(string $album, string $slug): ?string {
 function series_url(string $id): string {
     if (clean_urls_enabled()) return public_url('series/' . path_url_encode(series_seo_slug($id)));
     return public_url('?s=' . urlencode($id));
+}
+
+function all_photos_url(): string {
+    return clean_urls_enabled() ? public_url('all') : public_url('?all');
+}
+
+function admin_url(): string {
+    return clean_urls_enabled() ? public_url('admin') : public_url('?admin');
+}
+
+function analytics_admin_url(int $range = 0): string {
+    $url = clean_urls_enabled() ? public_url('admin/analytics') : public_url('?analytics_admin=1');
+    return $range > 0 ? add_url_param($url, 'range', (string)$range) : $url;
+}
+
+function series_editor_url(string $id): string {
+    return clean_urls_enabled() ? public_url('admin/series/' . path_url_encode($id)) : public_url('?edit_series=' . urlencode($id));
+}
+
+function sitemap_url(): string {
+    return clean_urls_enabled() ? public_url('sitemap.xml') : public_url('?sitemap=1');
 }
 
 function json_response(array $data, int $status = 200): void {
@@ -3081,7 +3125,7 @@ document.addEventListener('DOMContentLoaded',function(){
   function checkAdminSession(){
     if(checking)return;
     checking=true;
-    fetch('?admin_status=1&_='+Date.now(),{cache:'no-store',credentials:'same-origin'})
+    fetch(<?= json_encode(public_url('?admin_status=1'), JSON_UNESCAPED_SLASHES) ?>+'&_='+Date.now(),{cache:'no-store',credentials:'same-origin'})
       .then(function(r){return r.json();})
       .then(function(j){if(!!j.admin!==pageWasAdmin)location.reload();})
       .catch(function(){})
@@ -3265,8 +3309,8 @@ How the gallery is organized:
 4. Reload the gallery in your browser.
 
 Admin mode
-- IMPORTANT: To access admin mode, add ?admin to the back of the gallery URL:
-  https://myserver.com/lightbox/?admin
+- IMPORTANT: To access admin mode, open:
+  https://myserver.com/lightbox/admin
 - On first admin access, choose a long unique password.
 - The password is saved only as a one-way hash.
 - For better isolation, set LIGHTBOX_ADMIN_PASSWORD_FILE to a writable path
@@ -3276,7 +3320,7 @@ Password reset
 To reset the admin password, create this file in the gallery folder:
   reset-pass.txt
 
-Then open ?admin. The gallery removes reset-pass.txt, deletes the stored
+Then open /admin. The gallery removes reset-pass.txt, deletes the stored
 password hash, and shows the create-password screen again.
 
 TXT;
@@ -3289,7 +3333,7 @@ function getting_started_guide(): void {
     if (!is_dir(IMG_DIR)) {
         $images_created = @mkdir(IMG_DIR, 0775);
     }
-    $admin_url = htmlspecialchars(base_url() . '/?admin');
+    $admin_url = htmlspecialchars(absolute_url(admin_url()));
     $version = htmlspecialchars(APP_VERSION);
     echo '<main class="empty-guide">';
     echo '<h1>Welcome — no albums yet</h1>';
@@ -3765,7 +3809,7 @@ function analytics_delta_html(string $key, array $data, ?array $visit, string $k
 
 function analytics_photo_meta(array $data, string $album, string $photo): array {
     $key = $album . "\n" . $photo;
-    $url = $album !== '' && analytics_album_exists($album) ? album_url($album) : './?all';
+    $url = $album !== '' && analytics_album_exists($album) ? album_url($album) : all_photos_url();
     return $data['catalog']['photos'][$key] ?? ['album' => $album, 'photo' => $photo, 'title' => $photo, 'album_title' => $album, 'index' => 0, 'total' => 0, 'thumb' => '', 'url' => $url];
 }
 
@@ -3795,13 +3839,12 @@ function page_admin_analytics(int $days): void {
     $data = analytics_aggregate($days);
     $last_visits = analytics_admin_visits();
     $last_visit = $last_visits[(string)$days] ?? null;
-    html_head('Analytics — ' . site_title_text(), 'Local gallery analytics.', '', base_url() . '/?analytics_admin=1');
+    html_head('Analytics — ' . site_title_text(), 'Local gallery analytics.', '', absolute_url(analytics_admin_url()));
     echo '<nav class="nav" id="page-nav"><a class="nav-back" href="' . htmlspecialchars(public_url()) . '"><span class="nav-title">' . site_title_html() . '</span></a></nav>';
     admin_bar_html();
     settings_modal(albums());
-    $range_url = '?analytics_admin=1&range=';
     echo '<main class="analytics-page">';
-    echo '<div class="analytics-head"><h1>Analytics</h1><div class="analytics-tabs"><a class="' . ($days === 7 ? 'is-active' : '') . '" href="' . $range_url . '7">Last 7 Days</a><a class="' . ($days === 30 ? 'is-active' : '') . '" href="' . $range_url . '30">Last 30 Days</a></div></div>';
+    echo '<div class="analytics-head"><h1>Analytics</h1><div class="analytics-tabs"><a class="' . ($days === 7 ? 'is-active' : '') . '" href="' . htmlspecialchars(analytics_admin_url(7)) . '">Last 7 Days</a><a class="' . ($days === 30 ? 'is-active' : '') . '" href="' . htmlspecialchars(analytics_admin_url(30)) . '">Last 30 Days</a></div></div>';
     echo '<p class="analytics-note">Local anonymous analytics from <code>' . htmlspecialchars(ANALYTICS_DIR) . '/</code>. Delete the JSONL files there to reset analytics, or disable collection in General Settings.</p>';
     if ($data['events_count'] === 0 && $data['loads_count'] === 0) {
         echo '<div class="analytics-empty"><h2>No analytics yet</h2><p>Open a public album, view a few photos, then return here. Missing daily files are normal and count as empty days.</p></div></main>';
@@ -3977,7 +4020,7 @@ function page_overview(): void {
             echo '</a>';
         }
         echo '</main>';
-        echo '<div class="all-photos-link-wrap" style="text-align:center;padding:1.5rem 0 3rem"><a href="' . htmlspecialchars(public_url('?all')) . '" style="font-size:.75rem;letter-spacing:.15em;opacity:.8;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px">' . setting_label_html('all_photos_label', 'Alle Fotos', 'All Photos') . icon_arrow_right() . '</a></div>';
+        echo '<div class="all-photos-link-wrap" style="text-align:center;padding:1.5rem 0 3rem"><a href="' . htmlspecialchars(all_photos_url()) . '" style="font-size:.75rem;letter-spacing:.15em;opacity:.8;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px">' . setting_label_html('all_photos_label', 'Alle Fotos', 'All Photos') . icon_arrow_right() . '</a></div>';
         echo '</div>';
         if ($admin) {
             $csrf = json_encode($_SESSION['csrf'] ?? '');
@@ -4530,7 +4573,7 @@ button:hover{background:#ddd}
 </style>
 </head>
 <body>
-<form method="post" action="?admin">
+<form method="post" action="<?= htmlspecialchars(admin_url()) ?>">
 <h1>Create Admin Password</h1>
 <p>This first-run password protects the gallery admin tools. Use a long, unique password.</p>
 <?php if ($msg): ?><span class="err"><?= htmlspecialchars($msg) ?></span><?php endif ?>
@@ -4570,7 +4613,7 @@ button:hover{background:#ddd}
 </style>
 </head>
 <body>
-<form method="post" action="?admin">
+<form method="post" action="<?= htmlspecialchars(admin_url()) ?>">
 <?php if ($msg): ?><span class="err"><?= htmlspecialchars($msg) ?></span><?php elseif ($failed): ?><span class="err">Wrong password</span><?php endif ?>
 <input type="password" name="pass" autofocus placeholder="Password">
 <button type="submit">Enter</button>
@@ -4612,7 +4655,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     $icon_collapse = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 16 16"><path fill="currentColor" fill-rule="evenodd" d="M15.25 6.993a.75.75 0 0 0 0-1.5H10.5V.75a.75.75 0 1 0-1.5 0v5.493c0 .414.336.75.75.75zM.75 9.007a.75.75 0 1 0 0 1.5H5.5v4.743a.75.75 0 0 0 1.5 0V9.757a.75.75 0 0 0-.75-.75z" clip-rule="evenodd"/></svg>';
     echo '<nav class="nav" id="page-nav">';
     $_pa_st = site_title_html();
-    echo '<a class="nav-back" href="' . htmlspecialchars(public_url('?all')) . '"><span class="nav-title">' . $_pa_st . '</span></a>';
+    echo '<a class="nav-back" href="' . htmlspecialchars(all_photos_url()) . '"><span class="nav-title">' . $_pa_st . '</span></a>';
     echo lang_switch_html();
     echo '</nav>';
     if ($admin_early) {
@@ -4733,7 +4776,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo 'var META_IMAGE_URLS=' . json_encode($meta_image_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SHARE_INDEX=' . ($share_index === false ? '-1' : (string)(int)$share_index) . ';';
     echo 'var ALBUM_PAGE_URL=' . json_encode(album_url($album), JSON_UNESCAPED_SLASHES) . ';';
-    echo 'var ALBUM_BACK_URL=' . json_encode(isset($_GET['from']) && $_GET['from'] === 'all' ? public_url('?all') : public_url(), JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var ALBUM_BACK_URL=' . json_encode(isset($_GET['from']) && $_GET['from'] === 'all' ? all_photos_url() : public_url(), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var LARGE_GEN_URL=' . json_encode(public_url('?gen_large=1'), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var cur=0;';
     echo 'lbInstallAnalytics({viewType:"album",album:ALBUM,albumTitle:' . json_encode($name, JSON_UNESCAPED_SLASHES) . ',files:FILES,currentPhoto:function(){return FILES[cur]||"";}});';
@@ -4778,7 +4821,7 @@ JS;
         echo 'var CTX_ALBUM=' . $alb_js . ';';
         echo 'var CTX_CSRF=' . json_encode($csrf) . ';';
         echo 'var CTX_ALBUM_NAME=' . json_encode($name, JSON_UNESCAPED_SLASHES) . ';';
-        echo 'var PUBLIC_ALL_URL=' . json_encode(public_url('?all'), JSON_UNESCAPED_SLASHES) . ';';
+        echo 'var PUBLIC_ALL_URL=' . json_encode(all_photos_url(), JSON_UNESCAPED_SLASHES) . ';';
         echo 'var AN_MULTI=' . (multilingual_enabled() ? 'true' : 'false') . ';';
         echo 'dndSetup(document.getElementById("gallery"),"?save_image_order=1&a="+encodeURIComponent(CTX_ALBUM),' . json_encode($csrf) . ',"file");';
         echo <<<'JS'
@@ -5257,7 +5300,7 @@ function admin_bar_html(): void {
     if ($can_create_series) {
         $actions .= '<button class="admin-sm-toggle" onclick="newSeriesOpen()">New Series</button>';
     }
-    $actions .= '<a href="?analytics_admin=1">Analytics</a>';
+    $actions .= '<a href="' . htmlspecialchars(analytics_admin_url()) . '">Analytics</a>';
     $actions .= '<a href="#" onclick="settingsOpen();return false">General Settings</a>';
     $actions .= '<a href="#" onclick="fetch(\'./\',{method:\'POST\',headers:{\'X-CSRF-Token\':\'' . $csrf_tok . '\'},body:new URLSearchParams({logout:1}),cache:\'no-store\',credentials:\'same-origin\'}).then(()=>location.replace(\'./\'));return false">Logout</a>';
     echo '<div class="admin-bar"><span class="admin-bar-label">Admin Mode <span class="admin-bar-version">' . htmlspecialchars(APP_VERSION) . '</span></span><div class="admin-bar-actions">' . $actions . '</div></div>';
@@ -5316,7 +5359,7 @@ function page_series(string $id): void {
     }
     echo '<div class="series-h1-row">';
     echo '<h1 class="series-h1">' . bi($_title_de, $_title_en) . '</h1>';
-    if (is_admin()) echo '<a href="?edit_series=' . $id . '" class="nav-edit" title="Series settings">Series Settings</a>';
+    if (is_admin()) echo '<a href="' . htmlspecialchars(series_editor_url($id)) . '" class="nav-edit" title="Series settings">Series Settings</a>';
     echo '</div>';
 
     $_desc_de = $series['description'] ?? '';
@@ -5332,7 +5375,7 @@ function page_series(string $id): void {
         echo '<h2>No images in this series yet</h2>';
         echo '<p>Open an album, turn on Series Selection Mode, and check "' . htmlspecialchars($loc_title) . '" on each image you want here.</p>';
         echo series_album_links_html();
-        echo '<div class="se-album-links"><a class="se-copy-btn" href="?edit_series=' . $id . '">Series Settings</a></div>';
+        echo '<div class="se-album-links"><a class="se-copy-btn" href="' . htmlspecialchars(series_editor_url($id)) . '">Series Settings</a></div>';
         echo '</section>';
         html_foot();
         return;
@@ -5573,6 +5616,7 @@ function page_series_editor(string $id): void {
     echo 'var SE_BASE=' . json_encode(base_url()) . ';';
     echo 'var SE_PUBLIC_URL=' . json_encode(absolute_url(series_url($id)), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SE_HOME_URL=' . json_encode(public_url(), JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var SE_SERIES_URL=' . json_encode(series_url($id), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SE_MULTI=' . ($multi ? 'true' : 'false') . ';';
     echo <<<'JS'
 function seCopyLink(btn){
@@ -5592,7 +5636,7 @@ function seSave(){
     method:'POST',
     headers:{'X-CSRF-Token':SE_CSRF},
     body:new URLSearchParams({id:SE_ID,title:title,title_en:titleEn,description:desc,description_en:descEn,bg_color:bg?bg.value:'',order:order.join(',')})
-  }).then(function(r){if(r.ok)location.href='?s='+SE_ID;});
+  }).then(function(r){if(r.ok)location.href=SE_SERIES_URL;});
 }
 function seRemove(btn){var tile=btn.closest('.tile');if(tile)tile.remove();}
 function seDelete(){
