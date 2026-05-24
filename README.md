@@ -300,7 +300,9 @@ analytics/admin-visits.json
 
 Tracked data includes anonymous visitor/session IDs, album views, series views,
 source-link clickthroughs, photo views, photo dwell time, image load timing, and
-image load failures.
+image load failures. The admin dashboard includes 7-day and 30-day views with
+inline timeline sparklines for the main traffic, engagement, and performance
+values.
 
 Lightbox does not use Google Analytics, external analytics services, full IP
 addresses, full user agents, cookies, secrets, or admin-only URLs for analytics.
@@ -359,6 +361,23 @@ The test harness creates temporary gallery data and does not modify your real
 
 For local Caddy + `php-fpm` development, the included `Caddyfile` serves the
 gallery at `https://localhost:3024`.
+
+## Release Notes
+
+### Lightbox v0.9
+
+- Added inline timeline sparklines to Analytics cards and traffic/engagement
+  values, using the selected Last 7 Days or Last 30 Days range.
+- New image uploads are inserted at the front of the album order, and newly
+  created albums are promoted to the front of the overview.
+- Rebuilt the curated-series grid so desktop uses three tiles per row, mobile
+  uses two tiles per row, and incomplete final rows are centered.
+- Fixed the All Photos series strip so it follows the same desktop and mobile
+  tile wrapping rules as the home page.
+- Expanded album descriptions to full mobile width while keeping the narrower
+  desktop layout.
+- Added extra vertical spacing between album titles and descriptions when an
+  album description exists.
 
 ## License
 
