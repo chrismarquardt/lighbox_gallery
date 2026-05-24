@@ -860,10 +860,9 @@ function apply_clean_route(): void {
     if (isset($_GET['lb_path'])) {
         $route_path = (string)$_GET['lb_path'];
         unset($_GET['lb_path']);
-    } elseif (!$_GET) {
-        $route_path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
     } else {
-        return;
+        $route_path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+        if (!route_path_parts(rawurldecode($route_path))) return;
     }
     $raw_parts = route_path_parts(rawurldecode($route_path));
     if (count($raw_parts) === 4 && $raw_parts[0] === '_lb' && $raw_parts[1] === 'og') {
