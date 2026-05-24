@@ -8,7 +8,7 @@ const DEFAULT_DISPLAY_LONG_EDGE = 2000;
 const DEFAULT_DISPLAY_QUALITY = 78;
 const DEFAULT_SITE_TITLE = 'Photo Gallery';
 const DEFAULT_SITE_DESC  = 'Photo gallery';
-const APP_VERSION = 'v0.9';
+const APP_VERSION = 'v0.10';
 const SETTINGS_FILE = 'settings.json';
 const SERIES_FILE = 'series.json';
 const ANALYTICS_DIR = 'analytics';
@@ -350,11 +350,20 @@ if (isset($_GET['save_settings']) && is_admin()) {
         'display_long_edge'      => clamp_int($_POST['display_long_edge'] ?? $defaults['display_long_edge'], 800, 8000),
         'display_quality'        => clamp_int($_POST['display_quality'] ?? $defaults['display_quality'], 40, 100),
         'analytics_enabled'      => ($_POST['analytics_enabled'] ?? '0') === '1',
+        'clean_urls'             => ($_POST['clean_urls'] ?? '0') === '1',
         'bg_color'               => in_array($raw_bg, $allowed_bg, true) ? $raw_bg : $defaults['bg_color'],
     ]);
     atomic_write(SETTINGS_FILE, json_encode($s, JSON_PRETTY_PRINT));
+    $response = ['ok' => true];
+    if (!empty($s['clean_urls'])) {
+        $htaccess = ensure_lightbox_htaccess();
+        $response['htaccess'] = $htaccess['status'];
+        if (!$htaccess['ok']) {
+            $response['warning'] = $htaccess['message'];
+        }
+    }
     header('Content-Type: application/json');
-    echo '{"ok":true}';
+    echo json_encode($response, JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -896,6 +905,63 @@ function apply_clean_route(): void {
 
 function clean_urls_enabled(): bool {
     return !empty(load_settings()['clean_urls']);
+}
+
+function lightbox_htaccess_block(): string {
+    return "# BEGIN Lightbox\n"
+        . "Options -Indexes\n"
+        . "<IfModule mod_rewrite.c>\n"
+        . "  RewriteEngine On\n"
+        . "\n"
+        . "  RewriteRule ^images/[^/]+/(?!thumbs/|large/).+ - [R=404,L]\n"
+        . "  RewriteRule ^analytics/ - [R=404,L]\n"
+        . "\n"
+        . "  RewriteCond %{REQUEST_FILENAME} !-f\n"
+        . "  RewriteCond %{REQUEST_FILENAME} !-d\n"
+        . "  RewriteRule ^ index.php [L,QSA]\n"
+        . "</IfModule>\n"
+        . "# END Lightbox";
+}
+
+function ensure_lightbox_htaccess(?string $path = null): array {
+    $path = $path ?? (__DIR__ . '/.htaccess');
+    $block = lightbox_htaccess_block();
+    $begin = '# BEGIN Lightbox';
+    $end = '# END Lightbox';
+    $current = '';
+    $exists = is_file($path);
+    if ($exists) {
+        $contents = @file_get_contents($path);
+        if ($contents === false) {
+            return [
+                'ok' => false,
+                'status' => 'read_failed',
+                'message' => 'Clean URLs are enabled, but Lightbox could not read .htaccess. Add the rewrite rules manually.',
+            ];
+        }
+        $current = $contents;
+    }
+    $pattern = '/' . preg_quote($begin, '/') . '.*?' . preg_quote($end, '/') . '\R?/s';
+    if (preg_match($pattern, $current)) {
+        $next = preg_replace($pattern, $block . "\n", $current, 1);
+        if (!is_string($next)) $next = $current;
+        $status = 'updated';
+    } else {
+        $trimmed = rtrim($current);
+        $next = ($trimmed === '' ? '' : $trimmed . "\n\n") . $block . "\n";
+        $status = $exists ? 'appended' : 'created';
+    }
+    if ($next === $current) {
+        return ['ok' => true, 'status' => 'current', 'message' => 'Clean URL rewrite rules are already current.'];
+    }
+    if (!atomic_write($path, $next, 0664)) {
+        return [
+            'ok' => false,
+            'status' => 'write_failed',
+            'message' => 'Clean URLs are enabled, but Lightbox could not write .htaccess. Add the rewrite rules manually or make the gallery folder writable.',
+        ];
+    }
+    return ['ok' => true, 'status' => $status, 'message' => 'Clean URL rewrite rules were written to .htaccess.'];
 }
 
 function path_url_encode(string $seg): string {
@@ -3956,6 +4022,7 @@ function settings_modal(array $albs): void {
     $dle  = display_long_edge();
     $dq   = display_quality();
     $analytics_enabled = !empty($s['analytics_enabled']);
+    $clean_urls = !empty($s['clean_urls']);
     $multi = multilingual_enabled();
     $st_raw = (string)($s['site_title'] ?? $d['site_title']);
     $st_en_raw = (string)($s['site_title_en'] ?? $d['site_title_en']);
@@ -4074,6 +4141,13 @@ function settings_modal(array $albs): void {
         <div class="sm-row"><label class="sm-label">Series Padding Mobile (px)</label>
           <input class="sm-input" id="sm-spm" type="number" min="0" value="<?= $spm ?>"></div>
         <p class="sm-field-hint">Left and right padding for series pages on phone-sized screens.</p>
+      </details>
+      <details id="sm-group-urls" class="sm-group" data-default-open="1" open>
+        <summary class="sm-section-head">URLs & SEO</summary>
+        <p class="sm-section-desc">Optional human-readable public links for series, albums, and shared photos.</p>
+        <div class="sm-row"><label class="sm-label">Clean URLs</label>
+          <label class="sm-check"><input type="checkbox" id="sm-clean-urls" value="1"<?= $clean_urls ? ' checked' : '' ?>><span>Use SEO clean URLs</span></label></div>
+        <p class="sm-field-hint">Generates links such as <code>/series/name</code>, <code>/album/name</code>, and <code>/album/name/photo/photo-name</code>. On Apache-compatible servers, saving this setting writes or updates a marked Lightbox block in <code>.htaccess</code> when the gallery folder is writable. Query-string URLs keep working.</p>
       </details>
       <details id="sm-group-images" class="sm-group" data-default-open="1" open>
         <summary class="sm-section-head">Image Generation</summary>
@@ -4262,10 +4336,19 @@ function settingsSave(){
     display_long_edge:document.getElementById('sm-dle').value,
     display_quality:document.getElementById('sm-dq').value,
     analytics_enabled:document.getElementById('sm-analytics').checked?'1':'0',
+    clean_urls:document.getElementById('sm-clean-urls').checked?'1':'0',
     bg_color:bg?bg.value:'#fff'
   };
   var btn=document.getElementById('sm-save');
-  smPost('?save_settings=1',b).then(function(r){if(r.ok){smOk(btn,'Saved ✓');setTimeout(function(){location.reload();},800);}});
+  smPost('?save_settings=1',b).then(function(r){return r.json().catch(function(){return {ok:r.ok};});}).then(function(j){
+    if(j.ok){
+      smOk(btn,j.warning?'Saved with warning':'Saved ✓');
+      if(j.warning)alert(j.warning);
+      setTimeout(function(){location.reload();},800);
+    }else{
+      alert((j&&j.error)||'Could not save settings.');
+    }
+  });
 }
 function smResetAllThumbs(btn){
   if(!confirm('Remove all generated thumbnails? Master images will not be removed and thumbnails will regenerate on demand.'))return;

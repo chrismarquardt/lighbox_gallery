@@ -59,7 +59,6 @@ index.php
 Recommended supporting files:
 
 ```text
-.htaccess              Apache security and rewrite example
 fonts/                 optional local Montserrat webfonts
 README.md              this documentation
 LICENSE
@@ -74,6 +73,7 @@ images/
 settings.json
 series.json
 analytics/
+.htaccess
 .lightbox_admin_password.php
 ```
 
@@ -234,9 +234,11 @@ Protect master images and runtime data at the web server layer when possible.
 Visitors should receive images through `index.php` routes such as
 `?a=<album>&t=<file>` and `?a=<album>&i=<file>`.
 
-If you use Apache and allow `.htaccess`, copy the included `.htaccess` file to
-the gallery directory. It disables directory indexes, blocks direct access to
-master images, blocks raw analytics files, and routes optional clean URLs.
+If you use Apache and allow `.htaccess`, Lightbox can create and update its own
+marked `.htaccess` block when you enable clean URLs in settings. The block
+disables directory indexes, blocks direct access to master images, blocks raw
+analytics files, and routes optional clean URLs. Existing `.htaccess` content
+outside the `# BEGIN Lightbox` / `# END Lightbox` block is preserved.
 
 If you use Caddy, place the original-image block before file/PHP serving rules:
 
@@ -268,8 +270,8 @@ Query-string URLs always work:
 ?sitemap=1
 ```
 
-To prefer clean album and image URLs, enable clean URLs in admin settings or set
-this in `settings.json`:
+To prefer clean album, series, and image URLs, enable Admin Mode > General
+Settings > URLs & SEO > Clean URLs, or set this in `settings.json`:
 
 ```json
 {
@@ -277,8 +279,14 @@ this in `settings.json`:
 }
 ```
 
-Then configure your web server to rewrite missing files and directories to
-`index.php`. Supported clean public routes are:
+On Apache-compatible servers where the gallery folder is writable, saving the
+setting creates or updates a marked Lightbox block in `.htaccess` automatically.
+If `.htaccess` cannot be written, the setting is still saved and the admin UI
+shows a warning so you can add the rewrite manually.
+
+For Caddy, Nginx, and other servers, configure the web server to rewrite missing
+files and directories to `index.php`. Legacy clean public routes are still
+accepted:
 
 ```text
 /<album>
@@ -375,6 +383,16 @@ For local Caddy + `php-fpm` development, the included `Caddyfile` serves the
 gallery at `https://localhost:3024`.
 
 ## Release Notes
+
+### Lightbox v0.10
+
+- Added a visible Clean URLs setting under Admin Mode > General Settings > URLs
+  & SEO.
+- When Clean URLs are enabled on Apache-compatible servers, Lightbox now creates
+  or updates its own marked `.htaccess` block when possible, while preserving
+  existing rules outside that block.
+- Query-string URLs remain available as fallbacks, and non-Apache servers can
+  still use manual rewrite rules.
 
 ### Lightbox v0.9
 
