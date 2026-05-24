@@ -328,10 +328,10 @@ analytics/admin-visits.json
 ```
 
 Tracked data includes anonymous visitor/session IDs, album views, series views,
-source-link clickthroughs, photo views, photo dwell time, image load timing, and
-image load failures. The admin dashboard includes 7-day and 30-day views with
-inline timeline sparklines for the main traffic, engagement, and performance
-values.
+source-link clickthroughs, share clicks, photo views, photo dwell time, image
+load timing, and image load failures. The admin dashboard includes 7-day and
+30-day views with inline timeline sparklines for the main traffic, engagement,
+sharing, and performance values.
 
 Lightbox does not use Google Analytics, external analytics services, full IP
 addresses, full user agents, cookies, secrets, or admin-only URLs for analytics.

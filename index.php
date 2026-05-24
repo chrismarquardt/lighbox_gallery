@@ -336,6 +336,10 @@ if (isset($_GET['save_settings']) && is_admin()) {
         'series_label_en'        => substr(trim($_POST['series_label_en'] ?? $defaults['series_label_en']), 0, 80) ?: $defaults['series_label_en'],
         'all_photos_label'       => substr(trim($_POST['all_photos_label'] ?? $defaults['all_photos_label']), 0, 80) ?: $defaults['all_photos_label'],
         'all_photos_label_en'    => substr(trim($_POST['all_photos_label_en'] ?? $defaults['all_photos_label_en']), 0, 80) ?: $defaults['all_photos_label_en'],
+        'share_label'            => substr(trim($_POST['share_label'] ?? $defaults['share_label']), 0, 80) ?: $defaults['share_label'],
+        'share_label_en'         => substr(trim($_POST['share_label_en'] ?? $defaults['share_label_en']), 0, 80) ?: $defaults['share_label_en'],
+        'copied_label'           => substr(trim($_POST['copied_label'] ?? $defaults['copied_label']), 0, 80) ?: $defaults['copied_label'],
+        'copied_label_en'        => substr(trim($_POST['copied_label_en'] ?? $defaults['copied_label_en']), 0, 80) ?: $defaults['copied_label_en'],
         'album_label'            => substr(trim($_POST['album_label'] ?? $defaults['album_label']), 0, 80) ?: $defaults['album_label'],
         'album_label_en'         => substr(trim($_POST['album_label_en'] ?? $defaults['album_label_en']), 0, 80) ?: $defaults['album_label_en'],
         'albums_label'           => substr(trim($_POST['albums_label'] ?? $defaults['albums_label']), 0, 80) ?: $defaults['albums_label'],
@@ -1436,6 +1440,10 @@ function default_settings(): array {
         'series_label_en'        => 'SERIES',
         'all_photos_label'       => 'Alle Fotos',
         'all_photos_label_en'    => 'All Photos',
+        'share_label'            => 'Teilen',
+        'share_label_en'         => 'Share',
+        'copied_label'           => 'Kopiert',
+        'copied_label_en'        => 'Copied',
         'album_label'            => 'Album',
         'album_label_en'         => 'Album',
         'albums_label'           => 'ALBUMS',
@@ -1673,7 +1681,7 @@ function route_analytics_event(): void {
     foreach (array_slice($events, 0, 20) as $ev) {
         if (!is_array($ev)) continue;
         $type = (string)($ev['type'] ?? '');
-        if (!in_array($type, ['album_view', 'series_view', 'photo_view', 'photo_dwell', 'image_load', 'series_source_click'], true)) continue;
+        if (!in_array($type, ['album_view', 'series_view', 'photo_view', 'photo_dwell', 'image_load', 'series_source_click', 'share_click'], true)) continue;
         $vid = analytics_safe_id($ev['vid'] ?? '');
         $sid = analytics_safe_id($ev['sid'] ?? '');
         if ($vid === '' || $sid === '') continue;
@@ -1694,6 +1702,9 @@ function route_analytics_event(): void {
         if (isset($ev['album_title'])) $row['album_title'] = analytics_safe_text($ev['album_title'], 160);
         if (isset($ev['photo_title'])) $row['photo_title'] = analytics_safe_text($ev['photo_title'], 180);
         if (isset($ev['series_title'])) $row['series_title'] = analytics_safe_text($ev['series_title'], 180);
+        if (isset($ev['share_url'])) $row['share_url'] = analytics_safe_path($ev['share_url']);
+        if (isset($ev['share_title'])) $row['share_title'] = analytics_safe_text($ev['share_title'], 180);
+        if (isset($ev['page_type'])) $row['page_type'] = analytics_safe_text($ev['page_type'], 40);
         if (isset($ev['index'])) $row['idx'] = max(0, min(100000, (int)$ev['index']));
         if (isset($ev['total'])) $row['total'] = max(0, min(100000, (int)$ev['total']));
         if ($type === 'photo_dwell') {
@@ -2684,6 +2695,11 @@ body.page-home{display:flex;flex-direction:column;min-height:100vh}
 .lang-switch a{opacity:.35;transition:opacity .2s;text-decoration:none;color:inherit}
 .lang-switch a.ls-on{opacity:1}
 .lang-switch a:hover{opacity:.75}
+.nav-tools{position:absolute;right:24px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:12px}
+#overview-nav .nav-tools{right:16px}
+.nav-tools .lang-switch{position:static!important;transform:none!important;margin-left:0}
+.share-link{background:none;border:none;color:inherit;cursor:pointer;font:inherit;font-size:.6rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.45;padding:0}
+.share-link:hover{opacity:.8}
 .lang-de .t-en{display:none!important}
 .lang-en .t-de{display:none!important}
 .tile{position:relative;aspect-ratio:1;overflow:hidden;display:block;cursor:pointer;border:none;padding:0;margin:0;background:none;border-radius:0}
@@ -2704,8 +2720,8 @@ body.is-admin img{pointer-events:auto}
 .nav a:hover{opacity:.6}
 .nav-sep{opacity:.3}
 .nav .lang-switch{position:absolute;right:24px;top:50%;transform:translateY(-50%);margin-left:0}
-@media(max-width:700px){body.has-float-back #page-nav{min-height:112px;padding-top:62px;align-items:flex-start}body.has-float-back #page-nav .nav-back{max-width:100%;justify-content:center}body.has-float-back #page-nav .nav-title{overflow-wrap:anywhere}body.has-float-back #page-nav .lang-switch{top:22px;transform:none}}
-@media(max-width:520px){#page-nav{background:#000}.nav{padding-left:56px;padding-right:56px}.nav-sep{display:none}.nav-album{display:none}#page-nav.lb-hidden{display:none}.nav .lang-switch{right:12px}}
+@media(max-width:700px){body.has-float-back #page-nav{min-height:112px;padding-top:62px;align-items:flex-start}body.has-float-back #page-nav .nav-back{max-width:100%;justify-content:center}body.has-float-back #page-nav .nav-title{overflow-wrap:anywhere}body.has-float-back #page-nav .nav-tools{top:22px;transform:none}}
+@media(max-width:520px){#page-nav{background:#000}.nav{padding-left:56px;padding-right:56px}.nav-sep{display:none}.nav-album{display:none}#page-nav.lb-hidden{display:none}.nav .nav-tools{right:12px;gap:8px}}
 .float-back{position:fixed;top:14px;left:14px;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.72);color:#fff;box-shadow:0 2px 14px rgba(0,0,0,.25);opacity:.58;visibility:visible;pointer-events:auto;transition:opacity .22s ease,visibility .22s ease;z-index:450}
 .float-back svg{display:block;width:18px;height:18px}
 .float-back:hover{opacity:1}
@@ -2727,6 +2743,7 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 #lb-close svg{display:block;width:18px;height:18px}
 #lb-close:hover{opacity:.95}
 #lb-counter{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-size:.65rem;color:#fff;text-shadow:0 0 4px #000,0 0 8px #000;opacity:.3;letter-spacing:.13em}
+#lb-share{position:fixed;top:24px;right:28px;z-index:3;color:#fff;text-shadow:0 0 4px #000,0 0 8px #000}
 /* album name edit */
 .nav-edit{background:none;border:1px solid currentColor;color:#fff;cursor:pointer;font-size:.62rem;padding:5px 9px;opacity:.55;line-height:1;vertical-align:middle;font-family:inherit;font-weight:700;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap}
 .nav-edit:hover{opacity:1}
@@ -2987,6 +3004,7 @@ echo "<style>.grid{gap:{$_g}px;padding-left:{$_cp}px;padding-right:{$_cp}px}.nav
 var LB_PRIMARY_HTML_LANG=<?= json_encode(primary_html_lang_attr()) ?>;
 var LB_DEBUG=true;
 var LB_ANALYTICS_ENABLED=<?= (analytics_enabled() && !is_admin()) ? 'true' : 'false' ?>;
+var LB_COPIED_LABEL=<?= json_encode(copied_label_text(), JSON_UNESCAPED_SLASHES) ?>;
 function lbDebug(){if(window.LB_DEBUG&&window.console&&console.debug)console.debug.apply(console,arguments);}
 function lbWarn(){if(window.console&&console.warn)console.warn.apply(console,arguments);}
 function lbFetchFailureDetails(url,label){
@@ -3092,6 +3110,31 @@ function lbSetMeta(i){
     ['og:image','og:image:secure_url'].forEach(function(p){var m=document.querySelector('meta[property="'+p+'"]');if(m)m.setAttribute('content',img);});
     var tw=document.querySelector('meta[name="twitter:image"]');if(tw)tw.setAttribute('content',img);
   }
+}
+function lbShareTrack(meta){
+  if(window.lbAnalyticsShare)window.lbAnalyticsShare(meta||{});
+}
+function lbShareUrl(url,title,meta){
+  url=url||location.href;title=title||document.title;meta=meta||{};
+  lbShareTrack(Object.assign({share_url:url,share_title:title},meta));
+  if(navigator.share){
+    navigator.share({title:title,url:url}).catch(function(){});
+    return 'shared';
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).catch(function(){});
+    return 'copied';
+  }
+  return 'shared';
+}
+function lbShareFromButton(btn){
+  if(!btn)return;
+  var mode=lbShareUrl(btn.dataset.shareUrl||location.href,btn.dataset.shareTitle||document.title,{page_type:btn.dataset.sharePage||'',album:btn.dataset.shareAlbum||'',photo:btn.dataset.sharePhoto||'',series:btn.dataset.shareSeries||''});
+  if(mode==='copied'){var old=btn.textContent;btn.textContent=LB_COPIED_LABEL||'Copied';setTimeout(function(){btn.textContent=old;},1100);}
+}
+function lbShareCurrent(){
+  var url=(window.SHARE_URLS&&SHARE_URLS[cur])||location.href,title=document.title,album=(window.ALBUMS&&ALBUMS[cur])||(window.ALBUM||''),photo=(window.FILES&&FILES[cur])||'';
+  lbShareUrl(url,title,{page_type:'photo',album:album,photo:photo,series:(window.LB_SERIES_ID||'')});
 }
 function lbInstallLightbox(){
   var el=document.getElementById('lb'),img=document.getElementById('lb-img');
@@ -3284,7 +3327,13 @@ function lbInstallAnalytics(ctx){
     if(!ctx.series||!album)return;
     var ev=base('series_source_click');ev.album=album;push(ev,true);
   };
-  var av=base(ctx.viewType==='series'?'series_view':'album_view');av.total=(ctx.files&&ctx.files.length)||0;push(av,false);
+  window.lbAnalyticsShare=function(meta){
+    meta=meta||{};
+    var ev=base('share_click');
+    ev.album=meta.album||ev.album||'';ev.photo=meta.photo||'';ev.series=meta.series||ev.series||'';ev.share_url=meta.share_url||'';ev.share_title=meta.share_title||'';ev.page_type=meta.page_type||ctx.viewType||'';
+    push(ev,true);
+  };
+  if(ctx.viewType==='series'||ctx.viewType==='album'){var av=base(ctx.viewType==='series'?'series_view':'album_view');av.total=(ctx.files&&ctx.files.length)||0;push(av,false);}
   document.querySelectorAll('.tile[data-album] img').forEach(function(img){
     var start=now(),tile=img.closest('.tile'),album=tile?tile.dataset.album||ctx.album:'',photo=tile?tile.dataset.file||'':'';
     function done(ok){
@@ -3344,6 +3393,22 @@ function lang_switch_html(): string {
          . '<a href="' . htmlspecialchars(lang_url('de')) . '" class="' . trim($de) . '" data-lang="de" onclick="setLbLang(\'de\')">' . $pl . '</a>'
          . '<a href="' . htmlspecialchars(lang_url('en')) . '" class="' . trim($en) . '" data-lang="en" onclick="setLbLang(\'en\')">EN</a>'
          . '</span>';
+}
+
+function share_label_text(): string {
+    return lf(load_settings(), 'share_label') ?: (current_lang() === 'en' ? 'Share' : 'Teilen');
+}
+
+function copied_label_text(): string {
+    return lf(load_settings(), 'copied_label') ?: (current_lang() === 'en' ? 'Copied' : 'Kopiert');
+}
+
+function share_link_html(string $url, string $title, string $page_type, string $album = '', string $photo = '', string $series = ''): string {
+    return '<button class="share-link" type="button" data-share-url="' . htmlspecialchars($url, ENT_QUOTES) . '" data-share-title="' . htmlspecialchars($title, ENT_QUOTES) . '" data-share-page="' . htmlspecialchars($page_type, ENT_QUOTES) . '" data-share-album="' . htmlspecialchars($album, ENT_QUOTES) . '" data-share-photo="' . htmlspecialchars($photo, ENT_QUOTES) . '" data-share-series="' . htmlspecialchars($series, ENT_QUOTES) . '" onclick="lbShareFromButton(this)">' . htmlspecialchars(share_label_text()) . '</button>';
+}
+
+function nav_tools_html(string $url, string $title, string $page_type, string $album = '', string $photo = '', string $series = ''): string {
+    return '<span class="nav-tools">' . share_link_html($url, $title, $page_type, $album, $photo, $series) . lang_switch_html() . '</span>';
 }
 
 function bi(string $de, string $en): string {
@@ -3547,7 +3612,7 @@ function analytics_aggregate(int $days): array {
     $daily_series_sessions = [];
     $daily_loads = [];
     foreach ($day_keys as $day) {
-        $daily_counts[$day] = ['album_views' => 0, 'series_views' => 0, 'series_source_clicks' => 0, 'photo_views' => 0];
+        $daily_counts[$day] = ['album_views' => 0, 'series_views' => 0, 'series_source_clicks' => 0, 'share_clicks' => 0, 'photo_views' => 0];
         $daily_visitors[$day] = [];
         $daily_sessions[$day] = [];
         $daily_dwell[$day] = ['sum' => 0, 'count' => 0];
@@ -3560,6 +3625,7 @@ function analytics_aggregate(int $days): array {
     $album_stats = [];
     $series_stats = [];
     $photo_stats = [];
+    $share_stats = [];
     $album_sessions = [];
     $series_sessions = [];
     $dwell_sum = 0;
@@ -3567,6 +3633,7 @@ function analytics_aggregate(int $days): array {
     $album_views = 0;
     $series_views = 0;
     $series_source_clicks = 0;
+    $share_clicks = 0;
     $photo_views = 0;
     foreach ($events as $ev) {
         $type = $ev['type'] ?? '';
@@ -3601,6 +3668,15 @@ function analytics_aggregate(int $days): array {
             $series_stats[$series]['source_clicks']++;
             $series_stats[$series]['source_albums'][$album] = ($series_stats[$series]['source_albums'][$album] ?? 0) + 1;
             if ($vid !== '') $series_stats[$series]['visitors'][$vid] = true;
+        } elseif ($type === 'share_click') {
+            $share_url = (string)($ev['share_url'] ?? '');
+            if ($share_url !== '') {
+                $share_clicks++;
+                if ($day !== '') $daily_counts[$day]['share_clicks']++;
+                $share_stats[$share_url] = $share_stats[$share_url] ?? ['url' => $share_url, 'title' => (string)($ev['share_title'] ?? $share_url), 'page_type' => (string)($ev['page_type'] ?? ''), 'album' => $album, 'photo' => $photo, 'series' => $series, 'count' => 0, 'visitors' => []];
+                $share_stats[$share_url]['count']++;
+                if ($vid !== '') $share_stats[$share_url]['visitors'][$vid] = true;
+            }
         } elseif ($type === 'photo_view' && $album !== '' && $photo !== '') {
             $photo_views++;
             if ($day !== '') $daily_counts[$day]['photo_views']++;
@@ -3721,6 +3797,9 @@ function analytics_aggregate(int $days): array {
     usort($album_stats, fn($a, $b) => $b['views'] <=> $a['views']);
     usort($series_stats, fn($a, $b) => $b['views'] <=> $a['views']);
     usort($photo_stats, fn($a, $b) => $b['views'] <=> $a['views']);
+    foreach ($share_stats as &$st) $st['unique'] = count($st['visitors']);
+    unset($st);
+    usort($share_stats, fn($a, $b) => $b['count'] <=> $a['count']);
     usort($dropoffs, fn($a, $b) => $b['count'] <=> $a['count']);
     usort($load_success, fn($a, $b) => ((int)($b['duration_ms'] ?? 0)) <=> ((int)($a['duration_ms'] ?? 0)));
     $failure_counts = [];
@@ -3737,6 +3816,7 @@ function analytics_aggregate(int $days): array {
         'album_views' => [],
         'series_views' => [],
         'series_source_clicks' => [],
+        'share_clicks' => [],
         'photo_views' => [],
         'photos_per_session' => [],
         'avg_dwell' => [],
@@ -3747,7 +3827,7 @@ function analytics_aggregate(int $days): array {
     ];
     foreach ($day_keys as $day) {
         $timeline['unique_visitors'][] = count($daily_visitors[$day]);
-        foreach (['album_views', 'series_views', 'series_source_clicks', 'photo_views'] as $key) {
+        foreach (['album_views', 'series_views', 'series_source_clicks', 'share_clicks', 'photo_views'] as $key) {
             $timeline[$key][] = $daily_counts[$day][$key];
         }
         $session_count = count($daily_sessions[$day]);
@@ -3778,6 +3858,7 @@ function analytics_aggregate(int $days): array {
         'album_views' => $album_views,
         'series_views' => $series_views,
         'series_source_clicks' => $series_source_clicks,
+        'share_clicks' => $share_clicks,
         'photo_views' => $photo_views,
         'photos_per_session' => $sessions ? array_sum(array_map(fn($s) => count($s['photos']), $sessions)) / count($sessions) : 0,
         'avg_dwell' => $dwell_count ? $dwell_sum / $dwell_count : 0,
@@ -3788,6 +3869,7 @@ function analytics_aggregate(int $days): array {
         'top_albums' => array_slice($album_stats, 0, 12),
         'top_series' => array_slice($series_stats, 0, 12),
         'top_photos' => array_slice($photo_stats, 0, 12),
+        'top_shares' => array_slice($share_stats, 0, 12),
         'dropoffs' => array_slice($dropoffs, 0, 12),
         'slowest_loads' => array_slice($load_success, 0, 10),
         'failed_by_image' => array_slice($failure_counts, 0, 10),
@@ -3852,6 +3934,7 @@ function analytics_snapshot(array $data): array {
         'album_views' => (float)$data['album_views'],
         'series_views' => (float)$data['series_views'],
         'series_source_clicks' => (float)$data['series_source_clicks'],
+        'share_clicks' => (float)$data['share_clicks'],
         'photo_views' => (float)$data['photo_views'],
         'photos_per_session' => (float)$data['photos_per_session'],
         'avg_dwell' => (float)$data['avg_dwell'],
@@ -3952,6 +4035,7 @@ function page_admin_analytics(int $days): void {
         ['album', 'album_views', 'Album views', analytics_format_count($data['album_views']), 'count'],
         ['series', 'series_views', 'Series views', analytics_format_count($data['series_views']), 'count'],
         ['link', 'series_source_clicks', 'Source clicks', analytics_format_count($data['series_source_clicks']), 'count'],
+        ['link', 'share_clicks', 'Share clicks', analytics_format_count($data['share_clicks']), 'count'],
         ['photo', 'photo_views', 'Photo views', analytics_format_count($data['photo_views']), 'count'],
         ['engagement', 'photos_per_session', 'Photos/session', analytics_format_count($data['photos_per_session']), 'count'],
         ['clock', 'avg_dwell', 'Avg time/photo', analytics_format_duration_ms($data['avg_dwell']), 'duration'],
@@ -3969,6 +4053,7 @@ function page_admin_analytics(int $days): void {
        . '<tr><th>' . analytics_metric_label('Album views', $tl['album_views'] ?? []) . '</th><td>' . analytics_format_count($data['album_views']) . '</td></tr>'
        . '<tr><th>' . analytics_metric_label('Series views', $tl['series_views'] ?? []) . '</th><td>' . analytics_format_count($data['series_views']) . '</td></tr>'
        . '<tr><th>' . analytics_metric_label('Series source clicks', $tl['series_source_clicks'] ?? []) . '</th><td>' . analytics_format_count($data['series_source_clicks']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Share clicks', $tl['share_clicks'] ?? []) . '</th><td>' . analytics_format_count($data['share_clicks']) . '</td></tr>'
        . '<tr><th>' . analytics_metric_label('Photo views', $tl['photo_views'] ?? []) . '</th><td>' . analytics_format_count($data['photo_views']) . '</td></tr>'
        . '</tbody></table></div>';
     echo '<div>' . analytics_heading('engagement', 'Engagement') . '<p class="analytics-help">How deeply visitors browse: distinct photos per session, time spent on photos, and completion rates. A visit counts as complete when the viewer reaches the final photo, or at least 90% of the photos, in that album or series.</p><table><tbody>'
@@ -4001,6 +4086,12 @@ function page_admin_analytics(int $days): void {
     foreach ($data['top_photos'] as $row) {
         $m = analytics_photo_meta($data, $row['album'], $row['photo']);
         echo '<tr><td><a class="analytics-photo" href="' . htmlspecialchars($m['url']) . '">' . ($m['thumb'] ? '<img src="' . htmlspecialchars($m['thumb']) . '" alt="">' : '') . '<span>' . htmlspecialchars($m['title']) . '</span></a></td><td>' . htmlspecialchars($m['album_title']) . '</td><td>' . analytics_format_count($row['views']) . '</td><td>' . analytics_format_duration_ms($row['avg_dwell']) . '</td></tr>';
+    }
+    echo '</tbody></table></section>';
+    echo '<section>' . analytics_heading('link', 'Top Share Links') . '<p class="analytics-help">Links visitors shared or copied from the gallery, album, series, and photo views.</p><table><thead><tr><th>Link</th><th>Type</th><th>Shares</th><th>Visitors</th></tr></thead><tbody>';
+    foreach ($data['top_shares'] as $row) {
+        $label = trim((string)($row['title'] ?? '')) ?: (string)$row['url'];
+        echo '<tr><td><a href="' . htmlspecialchars((string)$row['url']) . '">' . htmlspecialchars($label) . '</a><br><span class="analytics-sub">' . htmlspecialchars((string)$row['url']) . '</span></td><td>' . htmlspecialchars((string)($row['page_type'] ?? '')) . '</td><td>' . analytics_format_count($row['count']) . '</td><td>' . analytics_format_count($row['unique'] ?? 0) . '</td></tr>';
     }
     echo '</tbody></table></section>';
     echo '<section>' . analytics_heading('dropoff', 'Drop-off Points') . '<p class="analytics-help">For sessions that did not reach the final photo or the 90% completion threshold, this shows the last photo viewed before the visitor stopped browsing that album.</p><table><thead><tr><th>Album</th><th>Drop-off Photo</th><th>Index</th><th>Count</th></tr></thead><tbody>';
@@ -4076,7 +4167,8 @@ function page_overview(): void {
     $overview_canonical = clean_urls_enabled() && multilingual_enabled() ? absolute_url(public_url(lang_path_prefix())) : $base . '/';
     html_head($title, $desc, $hero, $overview_canonical);
     echo '<script type="application/ld+json">' . $jsonld . '</script>';
-    echo '<nav class="nav" id="overview-nav"><span>' . $st . '</span>' . lang_switch_html() . '</nav>';
+    $overview_share_url = $show_all ? absolute_url(all_photos_url()) : absolute_url(public_url(lang_path_prefix()));
+    echo '<nav class="nav" id="overview-nav"><span>' . $st . '</span>' . nav_tools_html($overview_share_url, $title, $show_all ? 'all' : 'home') . '</nav>';
     if ($admin) {
         admin_bar_html();
         settings_modal($albs);
@@ -4179,6 +4271,7 @@ function page_overview(): void {
     }
     echo '<div id="prep">Preparing&hellip;</div>';
     echo '<script data-cfasync="false">(function(){var p=document.getElementById("prep"),imgs=document.querySelectorAll(".tile img:not([loading=\'lazy\'])"),n=imgs.length;if(!n){p.classList.add("done");return;}var t=setTimeout(function(){p.classList.add("done");},2500);function check(){if(--n<=0){clearTimeout(t);p.classList.add("done");}}imgs.forEach(function(img){if(img.complete)check();else{img.addEventListener("load",check,{once:true});img.addEventListener("error",check,{once:true});}});})();(function(){document.querySelectorAll(".tile.thumb-pending img").forEach(function(img){function done(){img.closest(".tile").classList.remove("thumb-pending");}if(img.complete&&img.naturalWidth)done();else{img.addEventListener("load",done,{once:true});img.addEventListener("error",done,{once:true});}});})();(function(){function byView(a,b){var ar=a.getBoundingClientRect(),br=b.getBoundingClientRect(),av=ar.bottom>0&&ar.top<innerHeight,bv=br.bottom>0&&br.top<innerHeight;if(av!==bv)return av?-1:1;return ar.top-br.top||ar.left-br.left;}var q=Array.prototype.slice.call(document.querySelectorAll(".tile.thumb-pending[data-album][data-file]")).filter(function(tile){var img=tile.querySelector("img");return !!(img&&img.getAttribute("data-src"));}).sort(byView);function next(){var tile=q.shift();if(!tile)return;var img=tile.querySelector("img"),src=img&&img.getAttribute("data-src");if(!img||!src){next();return;}function done(){img.removeEventListener("load",done);img.removeEventListener("error",fail);setTimeout(next,80);}function fail(){img.removeEventListener("load",done);img.removeEventListener("error",fail);lbWarn("[Lightbox] overview thumbnail failed",tile.dataset.album,tile.dataset.file);setTimeout(next,250);}img.addEventListener("load",done,{once:true});img.addEventListener("error",fail,{once:true});img.setAttribute("loading","eager");img.setAttribute("fetchpriority","high");img.setAttribute("src",src);img.removeAttribute("data-src");}var seriesImgs=Array.prototype.slice.call(document.querySelectorAll(".series-strip img"));var left=seriesImgs.filter(function(img){return !(img.complete&&img.naturalWidth);}).length,started=false;function startQueue(){if(started)return;started=true;next();}if(left){var start=function(){if(--left<=0)startQueue();};seriesImgs.forEach(function(img){if(img.complete&&img.naturalWidth)return;img.addEventListener("load",start,{once:true});img.addEventListener("error",start,{once:true});});setTimeout(startQueue,1500);}else{startQueue();}})();</script>';
+    echo '<script data-cfasync="false">lbInstallAnalytics({viewType:' . json_encode($show_all ? 'all' : 'home') . '});</script>';
     html_foot();
 }
 
@@ -4209,6 +4302,10 @@ function settings_modal(array $albs): void {
     if (!$multi && $series_label_en_raw === '') $series_label_en_raw = $series_label_raw;
     $all_photos_label_raw = (string)($s['all_photos_label'] ?? $d['all_photos_label']);
     $all_photos_label_en_raw = (string)($s['all_photos_label_en'] ?? $d['all_photos_label_en']);
+    $share_label_raw = (string)($s['share_label'] ?? $d['share_label']);
+    $share_label_en_raw = (string)($s['share_label_en'] ?? $d['share_label_en']);
+    $copied_label_raw = (string)($s['copied_label'] ?? $d['copied_label']);
+    $copied_label_en_raw = (string)($s['copied_label_en'] ?? $d['copied_label_en']);
     $album_label_raw = (string)($s['album_label'] ?? $d['album_label']);
     $album_label_en_raw = (string)($s['album_label_en'] ?? $d['album_label_en']);
     $albums_label_raw = (string)($s['albums_label'] ?? $d['albums_label']);
@@ -4218,6 +4315,8 @@ function settings_modal(array $albs): void {
     $sources_label_raw = (string)($s['sources_label'] ?? $d['sources_label']);
     $sources_label_en_raw = (string)($s['sources_label_en'] ?? $d['sources_label_en']);
     if (!$multi && $all_photos_label_en_raw === '') $all_photos_label_en_raw = $all_photos_label_raw;
+    if (!$multi && $share_label_en_raw === '') $share_label_en_raw = $share_label_raw;
+    if (!$multi && $copied_label_en_raw === '') $copied_label_en_raw = $copied_label_raw;
     if (!$multi && $album_label_en_raw === '') $album_label_en_raw = $album_label_raw;
     if (!$multi && $albums_label_en_raw === '') $albums_label_en_raw = $albums_label_raw;
     if (!$multi && $source_label_en_raw === '') $source_label_en_raw = $source_label_raw;
@@ -4228,6 +4327,10 @@ function settings_modal(array $albs): void {
     $series_label_en = htmlspecialchars($series_label_en_raw);
     $all_photos_label = htmlspecialchars($all_photos_label_raw);
     $all_photos_label_en = htmlspecialchars($all_photos_label_en_raw);
+    $share_label = htmlspecialchars($share_label_raw);
+    $share_label_en = htmlspecialchars($share_label_en_raw);
+    $copied_label = htmlspecialchars($copied_label_raw);
+    $copied_label_en = htmlspecialchars($copied_label_en_raw);
     $album_label = htmlspecialchars($album_label_raw);
     $album_label_en = htmlspecialchars($album_label_en_raw);
     $albums_label = htmlspecialchars($albums_label_raw);
@@ -4242,6 +4345,8 @@ function settings_modal(array $albs): void {
     $en_title_label = $multi ? 'Gallery Title (EN)' : 'Gallery Title';
     $en_series_label = $multi ? 'Series Heading (EN)' : 'Series Heading';
     $en_all_photos_label = $multi ? 'All Photos Link (EN)' : 'All Photos Link';
+    $en_share_label = $multi ? 'Share Link (EN)' : 'Share Link';
+    $en_copied_label = $multi ? 'Copied Feedback (EN)' : 'Copied Feedback';
     $en_album_label = $multi ? 'Album Prefix (EN)' : 'Album Prefix';
     $en_albums_label = $multi ? 'Albums Heading (EN)' : 'Albums Heading';
     $en_source_label = $multi ? 'Source Label (EN)' : 'Source Label';
@@ -4274,6 +4379,14 @@ function settings_modal(array $albs): void {
           <input class="sm-input" id="sm-all-photos-label" value="<?= $all_photos_label ?>" maxlength="80"></div>
         <div class="sm-row"><label class="sm-label" id="sm-all-photos-en-label"><?= $en_all_photos_label ?></label>
           <input class="sm-input" id="sm-all-photos-label-en" value="<?= $all_photos_label_en ?>" maxlength="80"></div>
+        <div class="sm-row sm-primary-row"<?= $lang_style ?>><label class="sm-label" id="sm-share-primary-label">Share Link (<?= $pl ?>)</label>
+          <input class="sm-input" id="sm-share-label" value="<?= $share_label ?>" maxlength="80"></div>
+        <div class="sm-row"><label class="sm-label" id="sm-share-en-label"><?= $en_share_label ?></label>
+          <input class="sm-input" id="sm-share-label-en" value="<?= $share_label_en ?>" maxlength="80"></div>
+        <div class="sm-row sm-primary-row"<?= $lang_style ?>><label class="sm-label" id="sm-copied-primary-label">Copied Feedback (<?= $pl ?>)</label>
+          <input class="sm-input" id="sm-copied-label" value="<?= $copied_label ?>" maxlength="80"></div>
+        <div class="sm-row"><label class="sm-label" id="sm-copied-en-label"><?= $en_copied_label ?></label>
+          <input class="sm-input" id="sm-copied-label-en" value="<?= $copied_label_en ?>" maxlength="80"></div>
         <div class="sm-row sm-primary-row"<?= $lang_style ?>><label class="sm-label" id="sm-album-primary-label">Album Prefix (<?= $pl ?>)</label>
           <input class="sm-input" id="sm-album-label" value="<?= $album_label ?>" maxlength="80"></div>
         <div class="sm-row"><label class="sm-label" id="sm-album-en-label"><?= $en_album_label ?></label>
@@ -4443,6 +4556,14 @@ function settingsLangToggle(){
   if(allPhotosPrimary)allPhotosPrimary.textContent='All Photos Link ('+name+')';
   var allPhotosEn=document.getElementById('sm-all-photos-en-label');
   if(allPhotosEn)allPhotosEn.textContent=on?'All Photos Link (EN)':'All Photos Link';
+  var sharePrimary=document.getElementById('sm-share-primary-label');
+  if(sharePrimary)sharePrimary.textContent='Share Link ('+name+')';
+  var shareEn=document.getElementById('sm-share-en-label');
+  if(shareEn)shareEn.textContent=on?'Share Link (EN)':'Share Link';
+  var copiedPrimary=document.getElementById('sm-copied-primary-label');
+  if(copiedPrimary)copiedPrimary.textContent='Copied Feedback ('+name+')';
+  var copiedEn=document.getElementById('sm-copied-en-label');
+  if(copiedEn)copiedEn.textContent=on?'Copied Feedback (EN)':'Copied Feedback';
   var albumPrimary=document.getElementById('sm-album-primary-label');
   if(albumPrimary)albumPrimary.textContent='Album Prefix ('+name+')';
   var albumEn=document.getElementById('sm-album-en-label');
@@ -4471,6 +4592,10 @@ function settingsSave(){
   if(ml&&!ml.checked&&!seriesLabel)seriesLabel=seriesLabelEn;
   var allPhotosLabel=document.getElementById('sm-all-photos-label').value;
   var allPhotosLabelEn=document.getElementById('sm-all-photos-label-en').value;
+  var shareLabel=document.getElementById('sm-share-label').value;
+  var shareLabelEn=document.getElementById('sm-share-label-en').value;
+  var copiedLabel=document.getElementById('sm-copied-label').value;
+  var copiedLabelEn=document.getElementById('sm-copied-label-en').value;
   var albumLabel=document.getElementById('sm-album-label').value;
   var albumLabelEn=document.getElementById('sm-album-label-en').value;
   var albumsLabel=document.getElementById('sm-albums-label').value;
@@ -4480,6 +4605,8 @@ function settingsSave(){
   var sourcesLabel=document.getElementById('sm-sources-label').value;
   var sourcesLabelEn=document.getElementById('sm-sources-label-en').value;
   if(ml&&!ml.checked&&!allPhotosLabel)allPhotosLabel=allPhotosLabelEn;
+  if(ml&&!ml.checked&&!shareLabel)shareLabel=shareLabelEn;
+  if(ml&&!ml.checked&&!copiedLabel)copiedLabel=copiedLabelEn;
   if(ml&&!ml.checked&&!albumLabel)albumLabel=albumLabelEn;
   if(ml&&!ml.checked&&!albumsLabel)albumsLabel=albumsLabelEn;
   if(ml&&!ml.checked&&!sourceLabel)sourceLabel=sourceLabelEn;
@@ -4491,6 +4618,10 @@ function settingsSave(){
     series_label_en:seriesLabelEn,
     all_photos_label:allPhotosLabel,
     all_photos_label_en:allPhotosLabelEn,
+    share_label:shareLabel,
+    share_label_en:shareLabelEn,
+    copied_label:copiedLabel,
+    copied_label_en:copiedLabelEn,
     album_label:albumLabel,
     album_label_en:albumLabelEn,
     albums_label:albumsLabel,
@@ -4750,7 +4881,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo '<nav class="nav" id="page-nav">';
     $_pa_st = site_title_html();
     echo '<a class="nav-back" href="' . htmlspecialchars(all_photos_url()) . '"><span class="nav-title">' . $_pa_st . '</span></a>';
-    echo lang_switch_html();
+    echo nav_tools_html($canonical_url, $title, $is_image_share ? 'photo' : 'album', $album, $is_image_share ? $meta_image : '');
     echo '</nav>';
     if ($admin_early) {
         admin_bar_html();
@@ -4858,6 +4989,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo '<span id="lb-prev" onclick="lbMove(-1)" title="Previous">&#8249;</span>';
     echo '<img id="lb-img" src="" alt="" draggable="false">';
     echo '<span id="lb-next" onclick="lbMove(1)" title="Next">&#8250;</span>';
+    echo '<button id="lb-share" class="share-link" type="button" onclick="lbShareCurrent()">' . htmlspecialchars(share_label_text()) . '</button>';
     echo '<span id="lb-counter"></span>';
     echo '</div>';
 
@@ -5445,7 +5577,7 @@ function page_series(string $id): void {
 
     echo '<nav class="nav series-nav" id="page-nav">';
     echo '<a class="nav-back" href="' . htmlspecialchars(public_url()) . '"><span class="nav-title">' . $st . '</span></a>';
-    echo lang_switch_html();
+    echo nav_tools_html(absolute_url(series_url($id)), $title, 'series', '', '', $id);
     echo '</nav>';
     if (is_admin()) {
         admin_bar_html();
@@ -5528,6 +5660,7 @@ function page_series(string $id): void {
     echo '<span id="lb-prev" onclick="lbMove(-1)" title="Previous">&#8249;</span>';
     echo '<img id="lb-img" src="" alt="" draggable="false">';
     echo '<span id="lb-next" onclick="lbMove(1)" title="Next">&#8250;</span>';
+    echo '<button id="lb-share" class="share-link" type="button" onclick="lbShareCurrent()">' . htmlspecialchars(share_label_text()) . '</button>';
     echo '<span id="lb-counter"></span>';
     echo '</div>';
 
@@ -5539,6 +5672,7 @@ function page_series(string $id): void {
     echo 'var SHARE_URLS=' . json_encode($share_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var META_IMAGE_URLS=' . json_encode($meta_image_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SHARE_INDEX=-1;';
+    echo 'var LB_SERIES_ID=' . json_encode($id, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_PAGE_URL=' . json_encode(series_url($id), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_BACK_URL=' . json_encode(public_url(), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var LARGE_GEN_URL=' . json_encode(public_url('?gen_large=1'), JSON_UNESCAPED_SLASHES) . ';';
