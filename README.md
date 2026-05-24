@@ -285,7 +285,19 @@ Then configure your web server to rewrite missing files and directories to
 /<album>/<image-file>
 ```
 
-Series routes remain `?s=s1` through `?s=s6`.
+For SEO-style public links, Lightbox now generates:
+
+```text
+/series/<series-slug>
+/album/<album-slug>
+/album/<album-slug>/photo/<photo-slug>
+```
+
+Clean slugs are generated from the visible series title, album title, and photo
+filename stem, and are made unique within the gallery section they belong to.
+Lightbox generates extensionless canonical URLs; inbound `.html` variants are
+accepted as aliases. Query-string URLs such as `?a=<album>`,
+`?a=<album>&share_image=<file>`, and `?s=s1` continue to work as fallbacks.
 
 ## Local Analytics
 

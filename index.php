@@ -818,7 +818,7 @@ function clean_route_segments(): array {
     return clean_route_segments_from_path($path);
 }
 
-function clean_route_segments_from_path(string $path): array {
+function route_path_parts(string $path): array {
     $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
     $base = rtrim(str_replace('\\', '/', dirname($script)), '/');
     if ($base !== '' && $base !== '/' && strpos($path, $base . '/') === 0) {
@@ -829,7 +829,11 @@ function clean_route_segments_from_path(string $path): array {
     if (strpos($path, 'index.php/') === 0) {
         $path = substr($path, strlen('index.php/'));
     }
-    $parts = array_values(array_filter(explode('/', $path), 'strlen'));
+    return array_values(array_filter(explode('/', $path), 'strlen'));
+}
+
+function clean_route_segments_from_path(string $path): array {
+    $parts = route_path_parts($path);
     if (count($parts) > 2) return [];
     $out = [];
     foreach ($parts as $part) {
@@ -852,13 +856,32 @@ function apply_clean_route(): void {
     } else {
         return;
     }
-    $raw_parts = array_values(array_filter(explode('/', trim(rawurldecode($route_path), '/')), 'strlen'));
+    $raw_parts = route_path_parts(rawurldecode($route_path));
     if (count($raw_parts) === 4 && $raw_parts[0] === '_lb' && $raw_parts[1] === 'og') {
         $album = safe_seg($raw_parts[2]);
         $file = safe_seg($raw_parts[3]);
         if ($album !== null && $file !== null) {
             $_GET['a'] = $album;
             $_GET['og_image'] = $file;
+        }
+        return;
+    }
+    if (count($raw_parts) === 2 && $raw_parts[0] === 'series') {
+        $sid = resolve_series_seo_slug($raw_parts[1]);
+        if ($sid !== null) $_GET['s'] = $sid;
+        return;
+    }
+    if (count($raw_parts) === 2 && $raw_parts[0] === 'album') {
+        $album = resolve_album_seo_slug($raw_parts[1]);
+        if ($album !== null) $_GET['a'] = $album;
+        return;
+    }
+    if (count($raw_parts) === 4 && $raw_parts[0] === 'album' && $raw_parts[2] === 'photo') {
+        $album = resolve_album_seo_slug($raw_parts[1]);
+        $file = $album !== null ? resolve_photo_seo_slug($album, $raw_parts[3]) : null;
+        if ($album !== null && $file !== null) {
+            $_GET['a'] = $album;
+            $_GET['share_image'] = $file;
         }
         return;
     }
@@ -877,6 +900,112 @@ function clean_urls_enabled(): bool {
 
 function path_url_encode(string $seg): string {
     return str_replace('%2F', '/', rawurlencode($seg));
+}
+
+function seo_strip_html_suffix(string $slug): string {
+    return preg_replace('/\.html$/i', '', trim($slug)) ?? trim($slug);
+}
+
+function seo_slugify(string $name, string $fallback = 'item'): string {
+    $name = trim($name);
+    if ($name === '') $name = $fallback;
+    $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $name);
+    if (is_string($ascii) && $ascii !== '') $name = $ascii;
+    $name = strtolower($name);
+    $name = preg_replace('/[^a-z0-9]+/', '-', $name) ?? '';
+    $name = trim($name, '-');
+    return $name !== '' ? substr($name, 0, 90) : $fallback;
+}
+
+function seo_unique_slug_map(array $labels): array {
+    $out = [];
+    $used = [];
+    foreach ($labels as $key => $label) {
+        $base = seo_slugify((string)$label, (string)$key);
+        $slug = $base;
+        $n = 2;
+        while (isset($used[$slug])) {
+            $slug = substr($base, 0, 82) . '-' . $n++;
+        }
+        $used[$slug] = true;
+        $out[(string)$key] = $slug;
+    }
+    return $out;
+}
+
+function album_seo_slug_map(): array {
+    $labels = [];
+    foreach (albums() as $al) {
+        $slug = (string)$al['slug'];
+        $labels[$slug] = (string)($al['name'] ?? default_album_name($slug));
+    }
+    return seo_unique_slug_map($labels);
+}
+
+function album_seo_slug(string $album): string {
+    $map = album_seo_slug_map();
+    return $map[$album] ?? seo_slugify(default_album_name($album), $album);
+}
+
+function resolve_album_seo_slug(string $slug): ?string {
+    $slug = seo_strip_html_suffix($slug);
+    if (!preg_match('/^[a-z0-9-]+$/', $slug)) return null;
+    foreach (album_seo_slug_map() as $album => $seo_slug) {
+        if ($seo_slug === $slug) return safe_seg($album);
+    }
+    return null;
+}
+
+function series_seo_slug_map(): array {
+    $labels = [];
+    foreach (load_series() as $sid => $series) {
+        if (!in_array($sid, SERIES_IDS, true)) continue;
+        if (!series_has_admin_content($series)) continue;
+        $labels[$sid] = series_title_value($series, $sid);
+    }
+    return seo_unique_slug_map($labels);
+}
+
+function series_seo_slug(string $id): string {
+    $map = series_seo_slug_map();
+    return $map[$id] ?? seo_slugify($id, $id);
+}
+
+function resolve_series_seo_slug(string $slug): ?string {
+    $slug = seo_strip_html_suffix($slug);
+    if (!preg_match('/^[a-z0-9-]+$/', $slug)) return null;
+    foreach (series_seo_slug_map() as $id => $seo_slug) {
+        if ($seo_slug === $slug) return in_array($id, SERIES_IDS, true) ? $id : null;
+    }
+    return null;
+}
+
+function photo_seo_slug_map(string $album): array {
+    $labels = [];
+    foreach (images_in($album) as $file) {
+        $stem = substr(seo_slugify(pathinfo($file, PATHINFO_FILENAME), 'photo'), 0, 72);
+        $labels[$file] = $stem . '-' . substr(sha1($file), 0, 8);
+    }
+    return seo_unique_slug_map($labels);
+}
+
+function photo_seo_slug(string $album, string $file): string {
+    $map = photo_seo_slug_map($album);
+    return $map[$file] ?? seo_slugify(pathinfo($file, PATHINFO_FILENAME) . '-' . substr(sha1($file), 0, 8), $file);
+}
+
+function resolve_photo_seo_slug(string $album, string $slug): ?string {
+    $slug = seo_strip_html_suffix($slug);
+    if (!preg_match('/^[a-z0-9-]+$/', $slug)) return null;
+    foreach (photo_seo_slug_map($album) as $file => $seo_slug) {
+        if ($seo_slug === $slug) return safe_seg($file);
+    }
+    return null;
+}
+
+function series_url(string $id): string {
+    if (clean_urls_enabled()) return './series/' . path_url_encode(series_seo_slug($id));
+    return '?s=' . urlencode($id);
 }
 
 function json_response(array $data, int $status = 200): void {
@@ -1778,7 +1907,7 @@ function image_url(string $album, string $file): string {
 }
 
 function album_url(string $album): string {
-    if (clean_urls_enabled()) return './' . path_url_encode($album);
+    if (clean_urls_enabled()) return './album/' . path_url_encode(album_seo_slug($album));
     return '?a=' . urlencode($album);
 }
 
@@ -1788,7 +1917,7 @@ function add_url_param(string $url, string $key, string $value): string {
 }
 
 function image_clean_url(string $album, string $file): string {
-    return './' . path_url_encode($album) . '/' . path_url_encode($file);
+    return './album/' . path_url_encode(album_seo_slug($album)) . '/photo/' . path_url_encode(photo_seo_slug($album, $file));
 }
 
 function og_image_url(string $album, string $file): string {
@@ -1802,7 +1931,7 @@ function canonical_album_url(string $album): string {
 function canonical_image_url(string $album, string $file): string {
     $lang = current_lang_param();
     if (clean_urls_enabled()) {
-        $url = base_url() . '/' . path_url_encode($album) . '/' . path_url_encode($file);
+        $url = base_url() . '/album/' . path_url_encode(album_seo_slug($album)) . '/photo/' . path_url_encode(photo_seo_slug($album, $file));
         return $lang !== '' ? $url . '?' . ltrim($lang, '&') : $url;
     }
     return base_url() . '/?a=' . urlencode($album) . '&share_image=' . urlencode($file) . $lang;
@@ -2232,7 +2361,7 @@ function sitemap(): void {
     foreach (SERIES_IDS as $sid) {
         $series = $sdata[$sid] ?? empty_series_record();
         if (($series['hidden'] ?? false) || !series_title_value($series, '') || !series_valid_images($series, false)) continue;
-        xml_url($base . '/?s=' . $sid);
+        xml_url($base . '/' . ltrim(series_url($sid), './'));
     }
     echo '</urlset>';
 }
@@ -3154,7 +3283,7 @@ function analytics_catalog(): array {
         $series_out[$sid] = [
             'title' => series_title_value($series, 'Untitled Series'),
             'count' => count($valid),
-            'url' => '?s=' . urlencode($sid),
+            'url' => series_url($sid),
             'images' => array_map(fn($img) => $img['album'] . "\n" . $img['file'], $valid),
         ];
     }
@@ -3616,7 +3745,7 @@ function page_admin_analytics(int $days): void {
     echo '<section>' . analytics_heading('series', 'Top Series') . '<p class="analytics-help">Series ranked by series page views. Completion uses the same rule as albums, but follows the custom order of photos in the series. Source clicks show how often visitors used the source-album links below a series; the smaller lines list the clicked album names and their individual click counts.</p><table><thead><tr><th>Series</th><th>Views</th><th>Visitors</th><th>Photo Views</th><th>Completion</th><th>Source Clicks</th></tr></thead><tbody>';
     foreach ($data['top_series'] as $row) {
         $series = $row['series'];
-        $meta = $data['catalog']['series'][$series] ?? ['title' => $series, 'url' => '?s=' . urlencode($series)];
+        $meta = $data['catalog']['series'][$series] ?? ['title' => $series, 'url' => series_url($series)];
         $sources = [];
         foreach (array_slice($row['source_albums'] ?? [], 0, 2, true) as $album => $count) {
             $am = $data['catalog']['albums'][$album] ?? ['title' => $album, 'url' => album_url($album)];
@@ -3731,7 +3860,7 @@ function page_overview(): void {
             $pcls = ($st_item['thumb_missing'] ?? false) ? ' thumb-pending' : '';
             $data = ' data-album="' . htmlspecialchars($st_item['album']) . '" data-file="' . htmlspecialchars($st_item['file']) . '"';
             $img_attr = ($st_item['thumb_missing'] ?? false) ? 'data-src="' . htmlspecialchars($st_item['thumb']) . '"' : 'src="' . htmlspecialchars($st_item['thumb']) . '"';
-            echo '<a class="tile' . $hcls . $pcls . '" href="?s=' . $st_item['id'] . '"' . $drag . $data . '>';
+            echo '<a class="tile' . $hcls . $pcls . '" href="' . htmlspecialchars(series_url($st_item['id'])) . '"' . $drag . $data . '>';
             echo '<img ' . $img_attr . ' alt="' . htmlspecialchars($st_item['title_de']) . '" draggable="false" loading="lazy">';
             echo '<span class="tile-label">' . bi($st_item['title_de'], $st_item['title_en']) . '</span>';
             if ($admin) {
@@ -3759,7 +3888,7 @@ function page_overview(): void {
                 $pcls = '';
                 $data = ' data-album="' . htmlspecialchars($st_item['album']) . '" data-file="' . htmlspecialchars($st_item['file']) . '"';
                 $img_attr = 'src="' . htmlspecialchars($st_item['thumb']) . '"';
-                echo '<a class="tile' . $hcls . $pcls . '" href="?s=' . $st_item['id'] . '"' . $data . '>';
+                echo '<a class="tile' . $hcls . $pcls . '" href="' . htmlspecialchars(series_url($st_item['id'])) . '"' . $data . '>';
                 echo '<img ' . $img_attr . ' alt="' . htmlspecialchars($st_item['title_de']) . '" loading="eager" fetchpriority="high">';
                 echo '<span class="tile-label">' . bi($st_item['title_de'], $st_item['title_en']) . '</span>';
                 if ($admin) {
@@ -5044,7 +5173,7 @@ function page_series(string $id): void {
 
     $hero_img = series_hero_image($series, $valid_imgs);
     $hero_url = $hero_img ? thumb_url_ar($hero_img['album'], $hero_img['file']) : '';
-    html_head($title, $desc, $hero_url, $base . '/?s=' . $id);
+    html_head($title, $desc, $hero_url, $base . '/' . ltrim(series_url($id), './'));
     $sbg = in_array($series['bg_color'] ?? '', ['#000', '#888', '#fff'], true) ? $series['bg_color'] : '';
     if ($sbg !== '') {
         $sfg = ($sbg === '#fff') ? '#111' : '#fff';
@@ -5147,7 +5276,7 @@ function page_series(string $id): void {
     echo 'var SHARE_URLS=' . json_encode($share_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var META_IMAGE_URLS=' . json_encode($meta_image_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SHARE_INDEX=-1;';
-    echo 'var ALBUM_PAGE_URL=' . json_encode('?s=' . $id, JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var ALBUM_PAGE_URL=' . json_encode(series_url($id), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_BACK_URL=' . json_encode('./', JSON_UNESCAPED_SLASHES) . ';';
     echo 'var cur=0;';
     echo 'lbInstallAnalytics({viewType:"series",series:' . json_encode($id, JSON_UNESCAPED_SLASHES) . ',seriesTitle:' . json_encode($loc_title, JSON_UNESCAPED_SLASHES) . ',albums:ALBUMS,files:FILES,currentAlbum:function(i){return ALBUMS[i]||"";},currentPhoto:function(){return FILES[cur]||"";}});';
@@ -5273,7 +5402,7 @@ function page_series_editor(string $id): void {
     echo '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">';
     echo '<button class="se-save-btn" onclick="seSave()">Save &amp; Close</button>';
     echo '<button class="se-copy-btn" onclick="seCopyLink(this)">Copy Link</button>';
-    echo '<a class="se-copy-btn" href="/?s=' . $id . '" target="_blank" rel="noopener">Open ↗</a>';
+    echo '<a class="se-copy-btn" href="' . htmlspecialchars(series_url($id)) . '" target="_blank" rel="noopener">Open ↗</a>';
     echo '<button class="se-delete-btn" onclick="seDelete()">Delete Series</button>';
     echo '</div>';
     echo '<div class="se-aspect-row"><button class="nav-toggle" id="aspect-toggle" onclick="aspectToggle()" title="Toggle aspect ratio"><span id="aspect-icon-sq">' . $icon_collapse_se . '</span><span id="aspect-icon-ar" style="display:none">' . $icon_expand_se . '</span></button></div>';
@@ -5314,10 +5443,11 @@ function page_series_editor(string $id): void {
     echo 'var SE_ID=' . json_encode($id) . ';';
     echo 'var SE_CSRF=' . json_encode($csrf) . ';';
     echo 'var SE_BASE=' . json_encode(base_url()) . ';';
+    echo 'var SE_PUBLIC_URL=' . json_encode(base_url() . '/' . ltrim(series_url($id), './'), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SE_MULTI=' . ($multi ? 'true' : 'false') . ';';
     echo <<<'JS'
 function seCopyLink(btn){
-  navigator.clipboard.writeText(SE_BASE+'/?s='+SE_ID).then(function(){
+  navigator.clipboard.writeText(SE_PUBLIC_URL).then(function(){
     var orig=btn.textContent;btn.textContent='Copied!';setTimeout(function(){btn.textContent=orig;},1500);
   });
 }
