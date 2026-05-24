@@ -296,22 +296,25 @@ accepted:
 For SEO-style public links, Lightbox now generates:
 
 ```text
-/all
-/admin
-/admin/analytics
-/admin/series/<series-id>
-/sitemap.xml
-/series/<series-slug>
-/album/<album-slug>
-/album/<album-slug>/photo/<photo-slug>
+/<lang>/
+/<lang>/all
+/<lang>/admin
+/<lang>/admin/analytics
+/<lang>/admin/series/<series-id>
+/<lang>/sitemap.xml
+/<lang>/series/<localized-series-slug>
+/<lang>/album/<localized-album-slug>
+/<lang>/album/<localized-album-slug>/photo/<photo-slug>
 ```
 
-Clean slugs are generated from the visible series title, album title, and photo
-filename stem, and are made unique within the gallery section they belong to.
-Lightbox generates extensionless canonical URLs; inbound `.html` variants are
-accepted as aliases. Query-string URLs such as `?a=<album>`,
-`?a=<album>&share_image=<file>`, `?all`, `?admin`, and `?s=s1` continue to work
-as fallbacks.
+When multilingual mode is enabled, `<lang>` is `de` or `en`. Album and series
+slugs are generated from the title in that language and resolve back to the
+same internal album folder or series ID. Photo slugs are generated from the
+source filename, so both language URLs use the same thumbnail and large-image
+cache files. Lightbox emits canonical and `hreflang` links for the language
+variants. Inbound `.html` variants are accepted as aliases. Query-string URLs
+such as `?a=<album>`, `?a=<album>&share_image=<file>`, `?all`, `?admin`, and
+`?s=s1` continue to work as fallbacks.
 
 ## Local Analytics
 

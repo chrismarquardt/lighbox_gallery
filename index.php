@@ -55,8 +55,13 @@ header('X-Rocket-Loader: disabled');
 apply_clean_route();
 
 // ─── language ────────────────────────────────────────────────────────────────
-if (isset($_GET['lang']) && in_array($_GET['lang'], ['en', 'de'], true)) {
+if (isset($_GET['lang']) && in_array($_GET['lang'], ['en', 'de'], true) && empty($_SERVER['LB_LANG_FROM_PATH'])) {
+    $target_lang = (string)$_GET['lang'];
     setcookie('lb_lang', $_GET['lang'], ['expires' => time() + 60*60*24*365, 'path' => '/', 'samesite' => 'Lax', 'secure' => true, 'httponly' => false]);
+    if (clean_urls_enabled()) {
+        header('Location: ' . lang_url($target_lang));
+        exit;
+    }
     $uri = (string)($_SERVER['REQUEST_URI'] ?? './');
     $path = (string)(parse_url($uri, PHP_URL_PATH) ?: './');
     $query = (string)(parse_url($uri, PHP_URL_QUERY) ?? '');
@@ -868,6 +873,12 @@ function apply_clean_route(): void {
         if (!route_path_parts(rawurldecode($route_path))) return;
     }
     $raw_parts = route_path_parts(rawurldecode($route_path));
+    $route_lang = null;
+    if ($raw_parts && in_array($raw_parts[0], public_langs(), true)) {
+        $route_lang = array_shift($raw_parts);
+        $_GET['lang'] = $route_lang;
+        $_SERVER['LB_LANG_FROM_PATH'] = '1';
+    }
     if (count($raw_parts) === 4 && $raw_parts[0] === '_lb' && $raw_parts[1] === 'og') {
         $album = safe_seg($raw_parts[2]);
         $file = safe_seg($raw_parts[3]);
@@ -898,17 +909,17 @@ function apply_clean_route(): void {
         return;
     }
     if (count($raw_parts) === 2 && $raw_parts[0] === 'series') {
-        $sid = resolve_series_seo_slug($raw_parts[1]);
+        $sid = resolve_series_seo_slug($raw_parts[1], $route_lang);
         if ($sid !== null) $_GET['s'] = $sid;
         return;
     }
     if (count($raw_parts) === 2 && $raw_parts[0] === 'album') {
-        $album = resolve_album_seo_slug($raw_parts[1]);
+        $album = resolve_album_seo_slug($raw_parts[1], $route_lang);
         if ($album !== null) $_GET['a'] = $album;
         return;
     }
     if (count($raw_parts) === 4 && $raw_parts[0] === 'album' && $raw_parts[2] === 'photo') {
-        $album = resolve_album_seo_slug($raw_parts[1]);
+        $album = resolve_album_seo_slug($raw_parts[1], $route_lang);
         $file = $album !== null ? resolve_photo_seo_slug($album, $raw_parts[3]) : null;
         if ($album !== null && $file !== null) {
             $_GET['a'] = $album;
@@ -1021,53 +1032,106 @@ function seo_unique_slug_map(array $labels): array {
     return $out;
 }
 
-function album_seo_slug_map(): array {
-    static $map = null;
-    if ($map !== null) return $map;
+function public_langs(): array {
+    return ['de', 'en'];
+}
+
+function normalize_public_lang(?string $lang = null): string {
+    $lang = $lang ?? current_lang();
+    return $lang === 'en' ? 'en' : 'de';
+}
+
+function lang_prefix_enabled(): bool {
+    return clean_urls_enabled() && multilingual_enabled();
+}
+
+function lang_path_prefix(?string $lang = null): string {
+    return lang_prefix_enabled() ? normalize_public_lang($lang) . '/' : '';
+}
+
+function localized_label(array $data, string $key, string $lang, string $fallback = ''): string {
+    if ($lang === 'en') {
+        $v = trim((string)($data[$key . '_en'] ?? ''));
+        if ($v !== '') return $v;
+    }
+    $v = trim((string)($data[$key] ?? ''));
+    if ($v !== '') return $v;
+    if ($lang !== 'en') {
+        $v = trim((string)($data[$key . '_en'] ?? ''));
+        if ($v !== '') return $v;
+    }
+    return $fallback;
+}
+
+function album_seo_slug_map(?string $lang = null): array {
+    static $maps = [];
+    $lang = normalize_public_lang($lang);
+    if (isset($maps[$lang])) return $maps[$lang];
     $labels = [];
     foreach (albums() as $al) {
         $slug = (string)$al['slug'];
-        $labels[$slug] = (string)($al['name'] ?? default_album_name($slug));
+        $labels[$slug] = localized_label($al, 'name', $lang, default_album_name($slug));
     }
-    return $map = seo_unique_slug_map($labels);
+    return $maps[$lang] = seo_unique_slug_map($labels);
 }
 
-function album_seo_slug(string $album): string {
-    $map = album_seo_slug_map();
+function album_seo_slug(string $album, ?string $lang = null): string {
+    $map = album_seo_slug_map($lang);
     return $map[$album] ?? seo_slugify(default_album_name($album), $album);
 }
 
-function resolve_album_seo_slug(string $slug): ?string {
+function resolve_album_seo_slug(string $slug, ?string $lang = null): ?string {
     $slug = seo_strip_html_suffix($slug);
     if (!preg_match('/^[a-z0-9-]+$/', $slug)) return null;
-    foreach (album_seo_slug_map() as $album => $seo_slug) {
+    foreach (album_seo_slug_map($lang) as $album => $seo_slug) {
         if ($seo_slug === $slug) return safe_seg($album);
+    }
+    if ($lang !== null) {
+        foreach (public_langs() as $fallback_lang) {
+            if ($fallback_lang === normalize_public_lang($lang)) continue;
+            foreach (album_seo_slug_map($fallback_lang) as $album => $seo_slug) {
+                if ($seo_slug === $slug) return safe_seg($album);
+            }
+        }
     }
     return null;
 }
 
-function series_seo_slug_map(): array {
-    static $map = null;
-    if ($map !== null) return $map;
+function series_title_for_lang(array $series, string $lang, string $fallback = ''): string {
+    return localized_label($series, 'title', $lang, $fallback);
+}
+
+function series_seo_slug_map(?string $lang = null): array {
+    static $maps = [];
+    $lang = normalize_public_lang($lang);
+    if (isset($maps[$lang])) return $maps[$lang];
     $labels = [];
     foreach (load_series() as $sid => $series) {
         if (!in_array($sid, SERIES_IDS, true)) continue;
         if (!series_has_admin_content($series)) continue;
-        $labels[$sid] = series_title_value($series, $sid);
+        $labels[$sid] = series_title_for_lang($series, $lang, $sid);
     }
-    return $map = seo_unique_slug_map($labels);
+    return $maps[$lang] = seo_unique_slug_map($labels);
 }
 
-function series_seo_slug(string $id): string {
-    $map = series_seo_slug_map();
+function series_seo_slug(string $id, ?string $lang = null): string {
+    $map = series_seo_slug_map($lang);
     return $map[$id] ?? seo_slugify($id, $id);
 }
 
-function resolve_series_seo_slug(string $slug): ?string {
+function resolve_series_seo_slug(string $slug, ?string $lang = null): ?string {
     $slug = seo_strip_html_suffix($slug);
     if (!preg_match('/^[a-z0-9-]+$/', $slug)) return null;
-    foreach (series_seo_slug_map() as $id => $seo_slug) {
+    foreach (series_seo_slug_map($lang) as $id => $seo_slug) {
         if ($seo_slug === $slug) return in_array($id, SERIES_IDS, true) ? $id : null;
+    }
+    if ($lang !== null) {
+        foreach (public_langs() as $fallback_lang) {
+            if ($fallback_lang === normalize_public_lang($lang)) continue;
+            foreach (series_seo_slug_map($fallback_lang) as $id => $seo_slug) {
+                if ($seo_slug === $slug) return in_array($id, SERIES_IDS, true) ? $id : null;
+            }
+        }
     }
     return null;
 }
@@ -1097,30 +1161,30 @@ function resolve_photo_seo_slug(string $album, string $slug): ?string {
     return null;
 }
 
-function series_url(string $id): string {
-    if (clean_urls_enabled()) return public_url('series/' . path_url_encode(series_seo_slug($id)));
+function series_url(string $id, ?string $lang = null): string {
+    if (clean_urls_enabled()) return public_url(lang_path_prefix($lang) . 'series/' . path_url_encode(series_seo_slug($id, $lang)));
     return public_url('?s=' . urlencode($id));
 }
 
-function all_photos_url(): string {
-    return clean_urls_enabled() ? public_url('all') : public_url('?all');
+function all_photos_url(?string $lang = null): string {
+    return clean_urls_enabled() ? public_url(lang_path_prefix($lang) . 'all') : public_url('?all');
 }
 
-function admin_url(): string {
-    return clean_urls_enabled() ? public_url('admin') : public_url('?admin');
+function admin_url(?string $lang = null): string {
+    return clean_urls_enabled() ? public_url(lang_path_prefix($lang) . 'admin') : public_url('?admin');
 }
 
-function analytics_admin_url(int $range = 0): string {
-    $url = clean_urls_enabled() ? public_url('admin/analytics') : public_url('?analytics_admin=1');
+function analytics_admin_url(int $range = 0, ?string $lang = null): string {
+    $url = clean_urls_enabled() ? public_url(lang_path_prefix($lang) . 'admin/analytics') : public_url('?analytics_admin=1');
     return $range > 0 ? add_url_param($url, 'range', (string)$range) : $url;
 }
 
-function series_editor_url(string $id): string {
-    return clean_urls_enabled() ? public_url('admin/series/' . path_url_encode($id)) : public_url('?edit_series=' . urlencode($id));
+function series_editor_url(string $id, ?string $lang = null): string {
+    return clean_urls_enabled() ? public_url(lang_path_prefix($lang) . 'admin/series/' . path_url_encode($id)) : public_url('?edit_series=' . urlencode($id));
 }
 
-function sitemap_url(): string {
-    return clean_urls_enabled() ? public_url('sitemap.xml') : public_url('?sitemap=1');
+function sitemap_url(?string $lang = null): string {
+    return clean_urls_enabled() ? public_url(lang_path_prefix($lang) . 'sitemap.xml') : public_url('?sitemap=1');
 }
 
 function json_response(array $data, int $status = 200): void {
@@ -1470,12 +1534,30 @@ function lf(array $data, string $key): string {
     return $data[$key] ?? '';
 }
 function lang_url(string $lang): string {
+    $lang = normalize_public_lang($lang);
+    if (clean_urls_enabled()) {
+        if (isset($_GET['a'])) {
+            $album = safe_seg((string)$_GET['a']);
+            if ($album !== null && isset($_GET['share_image'])) {
+                $file = safe_seg((string)$_GET['share_image']);
+                if ($file !== null) return image_clean_url($album, $file, $lang);
+            }
+            if ($album !== null) return album_url($album, $lang);
+        }
+        if (isset($_GET['s']) && in_array($_GET['s'], SERIES_IDS, true)) return series_url((string)$_GET['s'], $lang);
+        if (isset($_GET['all'])) return all_photos_url($lang);
+        if (isset($_GET['analytics_admin'])) return analytics_admin_url((int)($_GET['range'] ?? 0), $lang);
+        if (isset($_GET['edit_series']) && in_array($_GET['edit_series'], SERIES_IDS, true)) return series_editor_url((string)$_GET['edit_series'], $lang);
+        if (isset($_GET['admin'])) return admin_url($lang);
+        return public_url(lang_path_prefix($lang));
+    }
     $params = $_GET;
     $params['lang'] = $lang;
     return '?' . http_build_query($params);
 }
 
 function current_lang_param(): string {
+    if (clean_urls_enabled()) return '';
     return multilingual_enabled() ? '&lang=' . urlencode(current_lang()) : '';
 }
 
@@ -2042,8 +2124,8 @@ function image_url(string $album, string $file): string {
     return public_url($url);
 }
 
-function album_url(string $album): string {
-    if (clean_urls_enabled()) return public_url('album/' . path_url_encode(album_seo_slug($album)));
+function album_url(string $album, ?string $lang = null): string {
+    if (clean_urls_enabled()) return public_url(lang_path_prefix($lang) . 'album/' . path_url_encode(album_seo_slug($album, $lang)));
     return public_url('?a=' . urlencode($album));
 }
 
@@ -2052,8 +2134,8 @@ function add_url_param(string $url, string $key, string $value): string {
     return $url . $sep . urlencode($key) . '=' . urlencode($value);
 }
 
-function image_clean_url(string $album, string $file): string {
-    return public_url('album/' . path_url_encode(album_seo_slug($album)) . '/photo/' . path_url_encode(photo_seo_slug($album, $file)));
+function image_clean_url(string $album, string $file, ?string $lang = null): string {
+    return public_url(lang_path_prefix($lang) . 'album/' . path_url_encode(album_seo_slug($album, $lang)) . '/photo/' . path_url_encode(photo_seo_slug($album, $file)));
 }
 
 function og_image_url(string $album, string $file): string {
@@ -2067,8 +2149,7 @@ function canonical_album_url(string $album): string {
 function canonical_image_url(string $album, string $file): string {
     $lang = current_lang_param();
     if (clean_urls_enabled()) {
-        $url = absolute_url(image_clean_url($album, $file));
-        return $lang !== '' ? $url . '?' . ltrim($lang, '&') : $url;
+        return absolute_url(image_clean_url($album, $file));
     }
     return absolute_url(public_url('?a=' . urlencode($album) . '&share_image=' . urlencode($file) . $lang));
 }
@@ -2484,21 +2565,28 @@ function orient_image($img, int $orient) {
 function sitemap(): void {
     header('Content-Type: application/xml; charset=utf-8');
     $base = base_url();
+    $langs = (clean_urls_enabled() && multilingual_enabled()) ? public_langs() : [null];
     echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
     echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
     xml_url($base . '/');
+    if (clean_urls_enabled() && multilingual_enabled()) {
+        foreach ($langs as $lang) xml_url(absolute_url(public_url(lang_path_prefix($lang))));
+        foreach ($langs as $lang) xml_url(absolute_url(all_photos_url($lang)));
+    }
     foreach (albums() as $al) {
         if (!is_admin() && ($al['hidden'] ?? false)) continue;
-        xml_url(canonical_album_url($al['slug']));
-        foreach (images_in($al['slug']) as $img) {
-            xml_url(canonical_image_url($al['slug'], $img));
+        foreach ($langs as $lang) {
+            xml_url($lang === null ? canonical_album_url($al['slug']) : absolute_url(album_url($al['slug'], $lang)));
+            foreach (images_in($al['slug']) as $img) {
+                xml_url($lang === null ? canonical_image_url($al['slug'], $img) : absolute_url(image_clean_url($al['slug'], $img, $lang)));
+            }
         }
     }
     $sdata = load_series();
     foreach (SERIES_IDS as $sid) {
         $series = $sdata[$sid] ?? empty_series_record();
         if (($series['hidden'] ?? false) || !series_title_value($series, '') || !series_valid_images($series, false)) continue;
-        xml_url(absolute_url(series_url($sid)));
+        foreach ($langs as $lang) xml_url(absolute_url(series_url($sid, $lang)));
     }
     echo '</urlset>';
 }
@@ -2543,6 +2631,11 @@ function html_head(string $title, string $desc, string $og_image = '', string $c
 <title><?= htmlspecialchars($title) ?></title>
 <meta name="description" content="<?= htmlspecialchars($desc) ?>">
 <link rel="canonical" href="<?= htmlspecialchars($canonical) ?>">
+<?php if (clean_urls_enabled() && multilingual_enabled()): ?>
+<link rel="alternate" hreflang="de" href="<?= htmlspecialchars(absolute_url(lang_url('de'))) ?>">
+<link rel="alternate" hreflang="en" href="<?= htmlspecialchars(absolute_url(lang_url('en'))) ?>">
+<link rel="alternate" hreflang="x-default" href="<?= htmlspecialchars(absolute_url(lang_url('en'))) ?>">
+<?php endif ?>
 <!-- OpenGraph -->
 <meta property="og:type" content="<?= htmlspecialchars($og_type) ?>">
 <meta property="og:site_name" content="<?= htmlspecialchars($site_name) ?>">
@@ -2559,8 +2652,8 @@ function html_head(string $title, string $desc, string $og_image = '', string $c
 <meta name="twitter:image" content="<?= htmlspecialchars($og_image) ?>">
 <!-- Fonts -->
 <style>
-@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('fonts/montserrat-latin-ext.woff2') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
-@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('fonts/montserrat-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('<?= htmlspecialchars(public_url('fonts/montserrat-latin-ext.woff2')) ?>') format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('<?= htmlspecialchars(public_url('fonts/montserrat-latin.woff2')) ?>') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 </style>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -3248,8 +3341,8 @@ function lang_switch_html(): string {
     $en = current_lang() === 'en' ? ' ls-on' : '';
     $pl = htmlspecialchars(primary_lang_label());
     return '<span class="lang-switch">'
-         . '<a href="' . htmlspecialchars(lang_url('de')) . '" class="' . trim($de) . '" data-lang="de" onclick="setLbLang(\'de\');return false">' . $pl . '</a>'
-         . '<a href="' . htmlspecialchars(lang_url('en')) . '" class="' . trim($en) . '" data-lang="en" onclick="setLbLang(\'en\');return false">EN</a>'
+         . '<a href="' . htmlspecialchars(lang_url('de')) . '" class="' . trim($de) . '" data-lang="de" onclick="setLbLang(\'de\')">' . $pl . '</a>'
+         . '<a href="' . htmlspecialchars(lang_url('en')) . '" class="' . trim($en) . '" data-lang="en" onclick="setLbLang(\'en\')">EN</a>'
          . '</span>';
 }
 
@@ -3980,7 +4073,8 @@ function page_overview(): void {
     } elseif ($albs) {
         $hero = thumb_url_ar($albs[0]['slug'], $albs[0]['hero']);
     }
-    html_head($title, $desc, $hero, $base . '/');
+    $overview_canonical = clean_urls_enabled() && multilingual_enabled() ? absolute_url(public_url(lang_path_prefix())) : $base . '/';
+    html_head($title, $desc, $hero, $overview_canonical);
     echo '<script type="application/ld+json">' . $jsonld . '</script>';
     echo '<nav class="nav" id="overview-nav"><span>' . $st . '</span>' . lang_switch_html() . '</nav>';
     if ($admin) {
@@ -4552,7 +4646,7 @@ function page_admin_password_setup(string $msg = ''): void {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Create Admin Password</title>
 <style>
-@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('fonts/montserrat-latin.woff2') format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('<?= htmlspecialchars(public_url('fonts/montserrat-latin.woff2')) ?>') format('woff2')}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:#000;color:#fff;font-family:'Montserrat',sans-serif;min-height:100%;display:flex;align-items:center;justify-content:center}
 form{display:flex;flex-direction:column;gap:14px;width:min(520px,calc(100vw - 32px));padding:28px}
@@ -4601,7 +4695,7 @@ function page_login(bool $failed = false, string $msg = ''): void {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin</title>
 <style>
-@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('fonts/montserrat-latin.woff2') format('woff2')}
+@font-face{font-family:'Montserrat';font-style:normal;font-weight:400 700;font-display:swap;src:url('<?= htmlspecialchars(public_url('fonts/montserrat-latin.woff2')) ?>') format('woff2')}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:#000;color:#fff;font-family:'Montserrat',sans-serif;height:100%;display:flex;align-items:center;justify-content:center}
 form{display:flex;flex-direction:column;gap:14px;width:min(320px,calc(100vw - 32px))}
