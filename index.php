@@ -2391,6 +2391,7 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .album-h1-row{display:flex;align-items:center;justify-content:center;gap:10px;padding:2rem 24px .2rem;text-align:center}.album-h1-row--nodesc{padding-bottom:1.5rem}
 .album-h1{font-size:1rem;font-weight:700;letter-spacing:.12em;margin:0;text-align:center}
 .album-desc{max-width:50%;padding:0 24px 1.5rem;line-height:1.6;text-transform:none;letter-spacing:normal}
+@media(max-width:520px){.album-desc{width:100%;max-width:none;padding-left:16px;padding-right:16px}}
 .album-aspect-row{display:flex;justify-content:flex-end;padding:0 24px 14px}
 .empty-guide{width:min(720px,100%);margin:9vh auto 0;padding:0 24px 4rem;text-transform:none;letter-spacing:normal;line-height:1.65}
 .empty-guide h1{text-transform:uppercase;letter-spacing:.12em;font-size:1rem;margin-bottom:1rem}
