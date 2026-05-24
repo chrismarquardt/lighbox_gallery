@@ -1000,12 +1000,14 @@ function seo_unique_slug_map(array $labels): array {
 }
 
 function album_seo_slug_map(): array {
+    static $map = null;
+    if ($map !== null) return $map;
     $labels = [];
     foreach (albums() as $al) {
         $slug = (string)$al['slug'];
         $labels[$slug] = (string)($al['name'] ?? default_album_name($slug));
     }
-    return seo_unique_slug_map($labels);
+    return $map = seo_unique_slug_map($labels);
 }
 
 function album_seo_slug(string $album): string {
@@ -1023,13 +1025,15 @@ function resolve_album_seo_slug(string $slug): ?string {
 }
 
 function series_seo_slug_map(): array {
+    static $map = null;
+    if ($map !== null) return $map;
     $labels = [];
     foreach (load_series() as $sid => $series) {
         if (!in_array($sid, SERIES_IDS, true)) continue;
         if (!series_has_admin_content($series)) continue;
         $labels[$sid] = series_title_value($series, $sid);
     }
-    return seo_unique_slug_map($labels);
+    return $map = seo_unique_slug_map($labels);
 }
 
 function series_seo_slug(string $id): string {
@@ -1047,12 +1051,14 @@ function resolve_series_seo_slug(string $slug): ?string {
 }
 
 function photo_seo_slug_map(string $album): array {
+    static $maps = [];
+    if (isset($maps[$album])) return $maps[$album];
     $labels = [];
     foreach (images_in($album) as $file) {
         $stem = substr(seo_slugify(pathinfo($file, PATHINFO_FILENAME), 'photo'), 0, 72);
         $labels[$file] = $stem . '-' . substr(sha1($file), 0, 8);
     }
-    return seo_unique_slug_map($labels);
+    return $maps[$album] = seo_unique_slug_map($labels);
 }
 
 function photo_seo_slug(string $album, string $file): string {
