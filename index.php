@@ -1070,8 +1070,8 @@ function resolve_photo_seo_slug(string $album, string $slug): ?string {
 }
 
 function series_url(string $id): string {
-    if (clean_urls_enabled()) return './series/' . path_url_encode(series_seo_slug($id));
-    return '?s=' . urlencode($id);
+    if (clean_urls_enabled()) return public_url('series/' . path_url_encode(series_seo_slug($id)));
+    return public_url('?s=' . urlencode($id));
 }
 
 function json_response(array $data, int $status = 200): void {
@@ -1795,6 +1795,27 @@ function base_url(): string {
     return $scheme . '://' . $host . $path;
 }
 
+function origin_url(): string {
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host   = (string)($_SERVER['HTTP_HOST'] ?? 'localhost:3024');
+    if (!preg_match('/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/', $host)) $host = 'localhost:3024';
+    return $scheme . '://' . $host;
+}
+
+function public_base_path(): string {
+    $script = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? ''));
+    $dir = trim(dirname($script), '/');
+    return $dir === '' || $dir === '.' ? '' : '/' . $dir;
+}
+
+function public_url(string $path = ''): string {
+    $base = public_base_path();
+    $home = $base === '' ? '/' : $base . '/';
+    if ($path === '' || $path === '/') return $home;
+    if ($path[0] === '?') return $home . $path;
+    return ($base === '' ? '' : $base) . '/' . ltrim($path, '/');
+}
+
 function atomic_write(string $path, string $data, int $mode = 0664): bool {
     $dir = dirname($path);
     if (!is_dir($dir)) {
@@ -1973,8 +1994,8 @@ function image_url(string $album, string $file): string {
 }
 
 function album_url(string $album): string {
-    if (clean_urls_enabled()) return './album/' . path_url_encode(album_seo_slug($album));
-    return '?a=' . urlencode($album);
+    if (clean_urls_enabled()) return public_url('album/' . path_url_encode(album_seo_slug($album)));
+    return public_url('?a=' . urlencode($album));
 }
 
 function add_url_param(string $url, string $key, string $value): string {
@@ -1983,7 +2004,7 @@ function add_url_param(string $url, string $key, string $value): string {
 }
 
 function image_clean_url(string $album, string $file): string {
-    return './album/' . path_url_encode(album_seo_slug($album)) . '/photo/' . path_url_encode(photo_seo_slug($album, $file));
+    return public_url('album/' . path_url_encode(album_seo_slug($album)) . '/photo/' . path_url_encode(photo_seo_slug($album, $file)));
 }
 
 function og_image_url(string $album, string $file): string {
@@ -1991,20 +2012,21 @@ function og_image_url(string $album, string $file): string {
 }
 
 function canonical_album_url(string $album): string {
-    return base_url() . '/' . ltrim(album_url($album), './');
+    return absolute_url(album_url($album));
 }
 
 function canonical_image_url(string $album, string $file): string {
     $lang = current_lang_param();
     if (clean_urls_enabled()) {
-        $url = base_url() . '/album/' . path_url_encode(album_seo_slug($album)) . '/photo/' . path_url_encode(photo_seo_slug($album, $file));
+        $url = absolute_url(image_clean_url($album, $file));
         return $lang !== '' ? $url . '?' . ltrim($lang, '&') : $url;
     }
-    return base_url() . '/?a=' . urlencode($album) . '&share_image=' . urlencode($file) . $lang;
+    return absolute_url(public_url('?a=' . urlencode($album) . '&share_image=' . urlencode($file) . $lang));
 }
 
 function absolute_url(string $url): string {
     if (preg_match('/^https?:\/\//i', $url)) return $url;
+    if (isset($url[0]) && $url[0] === '/') return origin_url() . $url;
     return rtrim(base_url(), '/') . '/' . ltrim($url, './');
 }
 
@@ -2427,7 +2449,7 @@ function sitemap(): void {
     foreach (SERIES_IDS as $sid) {
         $series = $sdata[$sid] ?? empty_series_record();
         if (($series['hidden'] ?? false) || !series_title_value($series, '') || !series_valid_images($series, false)) continue;
-        xml_url($base . '/' . ltrim(series_url($sid), './'));
+        xml_url(absolute_url(series_url($sid)));
     }
     echo '</urlset>';
 }
@@ -3756,7 +3778,7 @@ function page_admin_analytics(int $days): void {
     $last_visits = analytics_admin_visits();
     $last_visit = $last_visits[(string)$days] ?? null;
     html_head('Analytics — ' . site_title_text(), 'Local gallery analytics.', '', base_url() . '/?analytics_admin=1');
-    echo '<nav class="nav" id="page-nav"><a class="nav-back" href="./"><span class="nav-title">' . site_title_html() . '</span></a></nav>';
+    echo '<nav class="nav" id="page-nav"><a class="nav-back" href="' . htmlspecialchars(public_url()) . '"><span class="nav-title">' . site_title_html() . '</span></a></nav>';
     admin_bar_html();
     settings_modal(albums());
     $range_url = '?analytics_admin=1&range=';
@@ -3937,7 +3959,7 @@ function page_overview(): void {
             echo '</a>';
         }
         echo '</main>';
-        echo '<div class="all-photos-link-wrap" style="text-align:center;padding:1.5rem 0 3rem"><a href="./?all" style="font-size:.75rem;letter-spacing:.15em;opacity:.8;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px">' . setting_label_html('all_photos_label', 'Alle Fotos', 'All Photos') . icon_arrow_right() . '</a></div>';
+        echo '<div class="all-photos-link-wrap" style="text-align:center;padding:1.5rem 0 3rem"><a href="' . htmlspecialchars(public_url('?all')) . '" style="font-size:.75rem;letter-spacing:.15em;opacity:.8;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px">' . setting_label_html('all_photos_label', 'Alle Fotos', 'All Photos') . icon_arrow_right() . '</a></div>';
         echo '</div>';
         if ($admin) {
             $csrf = json_encode($_SESSION['csrf'] ?? '');
@@ -3966,7 +3988,7 @@ function page_overview(): void {
             }
             echo '</div>';
         }
-        echo '<h2 class="overview-section-title">' . setting_label_html('albums_label', 'ALBUMS', 'ALBUMS') . ($series_tiles ? ' <a href="./">(hide)</a>' : '') . '</h2>';
+        echo '<h2 class="overview-section-title">' . setting_label_html('albums_label', 'ALBUMS', 'ALBUMS') . ($series_tiles ? ' <a href="' . htmlspecialchars(public_url()) . '">(hide)</a>' : '') . '</h2>';
         echo '<main class="grid" id="overview-grid">';
         $visible_idx = 0;
         foreach ($albs as $al) {
@@ -4572,7 +4594,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     $icon_collapse = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 16 16"><path fill="currentColor" fill-rule="evenodd" d="M15.25 6.993a.75.75 0 0 0 0-1.5H10.5V.75a.75.75 0 1 0-1.5 0v5.493c0 .414.336.75.75.75zM.75 9.007a.75.75 0 1 0 0 1.5H5.5v4.743a.75.75 0 0 0 1.5 0V9.757a.75.75 0 0 0-.75-.75z" clip-rule="evenodd"/></svg>';
     echo '<nav class="nav" id="page-nav">';
     $_pa_st = site_title_html();
-    echo '<a class="nav-back" href="./?all"><span class="nav-title">' . $_pa_st . '</span></a>';
+    echo '<a class="nav-back" href="' . htmlspecialchars(public_url('?all')) . '"><span class="nav-title">' . $_pa_st . '</span></a>';
     echo lang_switch_html();
     echo '</nav>';
     if ($admin_early) {
@@ -4693,7 +4715,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo 'var META_IMAGE_URLS=' . json_encode($meta_image_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SHARE_INDEX=' . ($share_index === false ? '-1' : (string)(int)$share_index) . ';';
     echo 'var ALBUM_PAGE_URL=' . json_encode(album_url($album), JSON_UNESCAPED_SLASHES) . ';';
-    echo 'var ALBUM_BACK_URL=' . json_encode(isset($_GET['from']) && $_GET['from'] === 'all' ? './?all' : './', JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var ALBUM_BACK_URL=' . json_encode(isset($_GET['from']) && $_GET['from'] === 'all' ? public_url('?all') : public_url(), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var cur=0;';
     echo 'lbInstallAnalytics({viewType:"album",album:ALBUM,albumTitle:' . json_encode($name, JSON_UNESCAPED_SLASHES) . ',files:FILES,currentPhoto:function(){return FILES[cur]||"";}});';
     echo <<<'JS'
@@ -4736,6 +4758,7 @@ JS;
         echo 'var CTX_ALBUM=' . $alb_js . ';';
         echo 'var CTX_CSRF=' . json_encode($csrf) . ';';
         echo 'var CTX_ALBUM_NAME=' . json_encode($name, JSON_UNESCAPED_SLASHES) . ';';
+        echo 'var PUBLIC_ALL_URL=' . json_encode(public_url('?all'), JSON_UNESCAPED_SLASHES) . ';';
         echo 'var AN_MULTI=' . (multilingual_enabled() ? 'true' : 'false') . ';';
         echo 'dndSetup(document.getElementById("gallery"),"?save_image_order=1&a="+encodeURIComponent(CTX_ALBUM),' . json_encode($csrf) . ',"file");';
         echo <<<'JS'
@@ -4769,7 +4792,7 @@ function anDelete(){
     method:'POST',
     headers:{'X-CSRF-Token':CTX_CSRF},
     body:new URLSearchParams({confirm:'DELETE_UPLOADED_IMAGES'})
-  }).then(function(r){if(r.ok)location.href='./?all';else alert('Could not delete this album.');});
+  }).then(function(r){if(r.ok)location.href=PUBLIC_ALL_URL;else alert('Could not delete this album.');});
 }
 document.getElementById('an-modal').addEventListener('click',function(e){if(e.target===this)anClose();});
 // series checkboxes
@@ -5242,7 +5265,7 @@ function page_series(string $id): void {
     if ((!series_has_admin_content($series) && !$valid_imgs) || (!$admin && ($public_title === '' || !$valid_imgs))) {
         http_response_code(404);
         html_head('Series Not Found — ' . $site_title, '');
-        echo '<nav class="nav"><a href="./" class="nav-back"><span class="nav-title">' . $st . '</span></a></nav>';
+        echo '<nav class="nav"><a href="' . htmlspecialchars(public_url()) . '" class="nav-back"><span class="nav-title">' . $st . '</span></a></nav>';
         echo '<div style="padding:40px 24px;opacity:.4;font-size:.75rem;">Series not found.</div>';
         html_foot();
         return;
@@ -5256,7 +5279,7 @@ function page_series(string $id): void {
 
     $hero_img = series_hero_image($series, $valid_imgs);
     $hero_url = $hero_img ? thumb_url_ar($hero_img['album'], $hero_img['file']) : '';
-    html_head($title, $desc, $hero_url, $base . '/' . ltrim(series_url($id), './'));
+    html_head($title, $desc, $hero_url, absolute_url(series_url($id)));
     $sbg = in_array($series['bg_color'] ?? '', ['#000', '#888', '#fff'], true) ? $series['bg_color'] : '';
     if ($sbg !== '') {
         $sfg = ($sbg === '#fff') ? '#111' : '#fff';
@@ -5264,7 +5287,7 @@ function page_series(string $id): void {
     }
 
     echo '<nav class="nav series-nav" id="page-nav">';
-    echo '<a class="nav-back" href="./"><span class="nav-title">' . $st . '</span></a>';
+    echo '<a class="nav-back" href="' . htmlspecialchars(public_url()) . '"><span class="nav-title">' . $st . '</span></a>';
     echo lang_switch_html();
     echo '</nav>';
     if (is_admin()) {
@@ -5360,7 +5383,7 @@ function page_series(string $id): void {
     echo 'var META_IMAGE_URLS=' . json_encode($meta_image_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SHARE_INDEX=-1;';
     echo 'var ALBUM_PAGE_URL=' . json_encode(series_url($id), JSON_UNESCAPED_SLASHES) . ';';
-    echo 'var ALBUM_BACK_URL=' . json_encode('./', JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var ALBUM_BACK_URL=' . json_encode(public_url(), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var cur=0;';
     echo 'lbInstallAnalytics({viewType:"series",series:' . json_encode($id, JSON_UNESCAPED_SLASHES) . ',seriesTitle:' . json_encode($loc_title, JSON_UNESCAPED_SLASHES) . ',albums:ALBUMS,files:FILES,currentAlbum:function(i){return ALBUMS[i]||"";},currentPhoto:function(){return FILES[cur]||"";}});';
     echo <<<'JS'
@@ -5457,7 +5480,7 @@ function page_series_editor(string $id): void {
     html_head($editor_title . ' Editor — ' . $site_title, '');
 
     echo '<nav class="nav" id="page-nav">';
-    echo '<a class="nav-back" href="./"><span class="nav-title">' . $st . '</span></a>';
+    echo '<a class="nav-back" href="' . htmlspecialchars(public_url()) . '"><span class="nav-title">' . $st . '</span></a>';
     echo '<span class="nav-sep">/</span>';
     echo '<span class="nav-album">' . $editor_title_html . ' Editor</span>';
     echo '</nav>';
@@ -5526,7 +5549,8 @@ function page_series_editor(string $id): void {
     echo 'var SE_ID=' . json_encode($id) . ';';
     echo 'var SE_CSRF=' . json_encode($csrf) . ';';
     echo 'var SE_BASE=' . json_encode(base_url()) . ';';
-    echo 'var SE_PUBLIC_URL=' . json_encode(base_url() . '/' . ltrim(series_url($id), './'), JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var SE_PUBLIC_URL=' . json_encode(absolute_url(series_url($id)), JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var SE_HOME_URL=' . json_encode(public_url(), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SE_MULTI=' . ($multi ? 'true' : 'false') . ';';
     echo <<<'JS'
 function seCopyLink(btn){
@@ -5556,7 +5580,7 @@ function seDelete(){
     method:'POST',
     headers:{'X-CSRF-Token':SE_CSRF},
     body:new URLSearchParams({id:SE_ID})
-  }).then(function(r){if(r.ok)location.href='./';});
+  }).then(function(r){if(r.ok)location.href=SE_HOME_URL;});
 }
 function seSetHero(el,e){
   e.stopPropagation();
