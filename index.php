@@ -2903,9 +2903,22 @@ function lbZoomAt(x,y){
   img.dataset.zoomRx=rx;img.dataset.zoomRy=ry;img.dataset.zoomCx=x;img.dataset.zoomCy=y;
   lbSetPan(x-rx*img.naturalWidth,y-ry*img.naturalHeight);
 }
+function lbPreloadLarge(i){
+  if(!(window.IMGS&&IMGS[i]))return;
+  var target=IMGS[i];
+  window.lbLargePreloads=window.lbLargePreloads||{};
+  if(window.lbLargePreloads[target])return;
+  var pre=new Image();
+  window.lbLargePreloads[target]=pre;
+  pre.onerror=function(){delete window.lbLargePreloads[target];};
+  pre.src=target;
+}
 function showLarge(i){
   var img=document.getElementById('lb-img'),target=IMGS[i];
-  var hi=new Image();
+  window.lbLargePreloads=window.lbLargePreloads||{};
+  var hi=window.lbLargePreloads[target]||new Image();
+  window.lbLargePreloads[target]=hi;
+  var targetAbs=target;try{targetAbs=new URL(target,location.href).href;}catch(e){}
   var hiStart=(performance&&performance.now)?performance.now():Date.now();
   hi.onload=function(){
     if(window.lbAnalyticsImage)lbAnalyticsImage(target,true,'full',hiStart);
@@ -2930,7 +2943,7 @@ function showLarge(i){
     setTimeout(function(){if(cur!==i){fade.remove();return;}img.src=target;img.style.opacity='1';fade.remove();},260);
   };
   hi.onerror=function(){if(window.lbAnalyticsImage)lbAnalyticsImage(target,false,'full',hiStart);if(cur===i)lbWarn('[Lightbox] large image failed',target);};
-  hi.src=target;
+  if(hi.src!==targetAbs)hi.src=target;
   if(hi.complete&&hi.naturalWidth){hi.onload();}
 }
 function lbSetMeta(i){
@@ -4749,6 +4762,7 @@ function pumpLargeQueue(){
     if(data.ok!==false){
       largeReady[job.i]=true;
       if(job.show&&cur===job.i)showLarge(job.i);
+      else lbPreloadLarge(job.i);
     }
   }).catch(function(e){lbWarn('[Lightbox] large generation failed',FILES[job.i],e);})
     .finally(function(){largeActive=false;setTimeout(pumpLargeQueue,80);});
@@ -5424,6 +5438,7 @@ function pumpLargeQueue(){
       largeReady[job.i]=true;
       swapSeriesLarge(job.i);
       if(job.show&&cur===job.i)showLarge(job.i);
+      else lbPreloadLarge(job.i);
     }
   }).catch(function(e){lbWarn('[Lightbox] large generation failed',FILES[job.i],e);})
     .finally(function(){largeActive=Math.max(0,largeActive-1);pumpLargeQueue();});
