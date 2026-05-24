@@ -2310,6 +2310,7 @@ a{color:inherit;text-decoration:none}
 #series-main.series-count-many,.series-strip.series-count-many{--series-row-width:var(--series-desktop-many-width)}
 #series-main .tile,.series-strip .tile{width:var(--series-tile-size);height:var(--series-tile-size);aspect-ratio:auto}
 #series-main .tile>img,.series-strip .tile>img{position:absolute;inset:0;width:100%;height:100%;max-width:none;object-fit:cover}
+.series-strip.series-strip{padding-left:0;padding-right:0}
 .series-strip--all .tile{width:var(--series-tile-size);height:var(--series-tile-size)}
 @media(max-width:520px){#series-main,.series-strip,#series-main.series-count-many,.series-strip.series-count-many{--series-tile-size:var(--series-mobile-tile-size);--series-row-width:var(--series-mobile-row-width)}.all-photos-link-wrap{padding-top:.35rem!important}}
 #series-home-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
