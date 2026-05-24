@@ -2538,6 +2538,7 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .analytics-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:24px 0}
 .analytics-card{border:1px solid rgba(127,127,127,.22);background:rgba(127,127,127,.08);padding:16px 14px;min-height:92px;display:flex;flex-direction:column;justify-content:space-between}
 .analytics-card span{font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;opacity:.64;display:flex;align-items:center;gap:7px}
+.analytics-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .analytics-card strong{font-size:1.35rem;letter-spacing:0;font-weight:700}
 .analytics-delta{font-size:.72rem;line-height:1.35;letter-spacing:normal;text-transform:none;opacity:.62;margin-top:8px}
 .analytics-delta.is-up{color:#178a41;opacity:1}
@@ -2546,6 +2547,10 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .analytics-title{display:flex;align-items:center;gap:8px}
 .analytics-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;opacity:.72;flex:0 0 auto}
 .analytics-icon svg{display:block;width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.analytics-sparkline{width:86px;height:24px;display:block;flex:0 0 86px;overflow:visible}
+.analytics-sparkline polyline{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:.72}
+.analytics-metric-label{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:190px}
+.analytics-metric-label span{white-space:nowrap}
 .analytics-grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .analytics-page table{width:100%;border-collapse:collapse;font-size:.82rem;background:rgba(127,127,127,.045)}
 .analytics-page th,.analytics-page td{border-bottom:1px solid rgba(127,127,127,.18);padding:10px 11px;text-align:left;vertical-align:middle}
@@ -3103,6 +3108,21 @@ function analytics_read_jsonl(string $prefix, int $days): array {
     return $rows;
 }
 
+function analytics_day_keys(int $days): array {
+    $keys = [];
+    for ($i = $days - 1; $i >= 0; $i--) {
+        $keys[] = date('Y-m-d', strtotime("-{$i} days"));
+    }
+    return $keys;
+}
+
+function analytics_event_day(array $row, array $day_lookup): string {
+    $ts = (int)($row['ts'] ?? 0);
+    if ($ts <= 0) return '';
+    $day = date('Y-m-d', $ts);
+    return isset($day_lookup[$day]) ? $day : '';
+}
+
 function analytics_catalog(): array {
     $albums = [];
     $photos = [];
@@ -3145,6 +3165,24 @@ function analytics_aggregate(int $days): array {
     $events = analytics_read_jsonl('events', $days);
     $loads = analytics_read_jsonl('image-loads', $days);
     $cat = analytics_catalog();
+    $day_keys = analytics_day_keys($days);
+    $day_lookup = array_fill_keys($day_keys, true);
+    $daily_counts = [];
+    $daily_visitors = [];
+    $daily_sessions = [];
+    $daily_dwell = [];
+    $daily_album_sessions = [];
+    $daily_series_sessions = [];
+    $daily_loads = [];
+    foreach ($day_keys as $day) {
+        $daily_counts[$day] = ['album_views' => 0, 'series_views' => 0, 'series_source_clicks' => 0, 'photo_views' => 0];
+        $daily_visitors[$day] = [];
+        $daily_sessions[$day] = [];
+        $daily_dwell[$day] = ['sum' => 0, 'count' => 0];
+        $daily_album_sessions[$day] = [];
+        $daily_series_sessions[$day] = [];
+        $daily_loads[$day] = ['sum' => 0, 'success' => 0, 'failed' => 0];
+    }
     $visitors = [];
     $sessions = [];
     $album_stats = [];
@@ -3165,30 +3203,40 @@ function analytics_aggregate(int $days): array {
         $album = (string)($ev['album'] ?? '');
         $photo = (string)($ev['photo'] ?? '');
         $series = (string)($ev['series'] ?? '');
+        $day = analytics_event_day($ev, $day_lookup);
         if ($vid !== '') $visitors[$vid] = true;
         if ($sid !== '') $sessions[$sid] = $sessions[$sid] ?? ['photos' => []];
+        if ($day !== '') {
+            if ($vid !== '') $daily_visitors[$day][$vid] = true;
+            if ($sid !== '') $daily_sessions[$day][$sid] = $daily_sessions[$day][$sid] ?? ['photos' => []];
+        }
         if ($type === 'album_view' && $album !== '') {
             $album_views++;
+            if ($day !== '') $daily_counts[$day]['album_views']++;
             $album_stats[$album] = $album_stats[$album] ?? ['album' => $album, 'views' => 0, 'visitors' => [], 'completed' => 0, 'sessions' => 0];
             $album_stats[$album]['views']++;
             if ($vid !== '') $album_stats[$album]['visitors'][$vid] = true;
         } elseif ($type === 'series_view' && $series !== '') {
             $series_views++;
+            if ($day !== '') $daily_counts[$day]['series_views']++;
             $series_stats[$series] = $series_stats[$series] ?? ['series' => $series, 'views' => 0, 'photo_views' => 0, 'source_clicks' => 0, 'source_albums' => [], 'visitors' => [], 'completed' => 0, 'sessions' => 0];
             $series_stats[$series]['views']++;
             if ($vid !== '') $series_stats[$series]['visitors'][$vid] = true;
         } elseif ($type === 'series_source_click' && $series !== '' && $album !== '') {
             $series_source_clicks++;
+            if ($day !== '') $daily_counts[$day]['series_source_clicks']++;
             $series_stats[$series] = $series_stats[$series] ?? ['series' => $series, 'views' => 0, 'photo_views' => 0, 'source_clicks' => 0, 'source_albums' => [], 'visitors' => [], 'completed' => 0, 'sessions' => 0];
             $series_stats[$series]['source_clicks']++;
             $series_stats[$series]['source_albums'][$album] = ($series_stats[$series]['source_albums'][$album] ?? 0) + 1;
             if ($vid !== '') $series_stats[$series]['visitors'][$vid] = true;
         } elseif ($type === 'photo_view' && $album !== '' && $photo !== '') {
             $photo_views++;
+            if ($day !== '') $daily_counts[$day]['photo_views']++;
             $pkey = $album . "\n" . $photo;
             $photo_stats[$pkey] = $photo_stats[$pkey] ?? ['album' => $album, 'photo' => $photo, 'views' => 0, 'dwell_sum' => 0, 'dwell_count' => 0];
             $photo_stats[$pkey]['views']++;
             if ($sid !== '') $sessions[$sid]['photos'][$pkey] = true;
+            if ($day !== '' && $sid !== '') $daily_sessions[$day][$sid]['photos'][$pkey] = true;
             if ($sid !== '') {
                 $akey = $album . "\n" . $sid;
                 $idx = (int)($cat['photos'][$pkey]['index'] ?? ($ev['idx'] ?? 0));
@@ -3200,6 +3248,11 @@ function analytics_aggregate(int $days): array {
                     $album_sessions[$akey]['last_photo'] = $photo;
                 }
                 if ($total > 0) $album_sessions[$akey]['total'] = $total;
+                if ($day !== '') {
+                    $daily_album_sessions[$day][$akey] = $daily_album_sessions[$day][$akey] ?? ['max_idx' => -1, 'total' => $total];
+                    if ($idx >= $daily_album_sessions[$day][$akey]['max_idx']) $daily_album_sessions[$day][$akey]['max_idx'] = $idx;
+                    if ($total > 0) $daily_album_sessions[$day][$akey]['total'] = $total;
+                }
             }
             if ($sid !== '' && $series !== '') {
                 $series_stats[$series] = $series_stats[$series] ?? ['series' => $series, 'views' => 0, 'photo_views' => 0, 'source_clicks' => 0, 'source_albums' => [], 'visitors' => [], 'completed' => 0, 'sessions' => 0];
@@ -3215,12 +3268,21 @@ function analytics_aggregate(int $days): array {
                     $series_sessions[$skey]['last_album'] = $album;
                 }
                 if ($stotal > 0) $series_sessions[$skey]['total'] = $stotal;
+                if ($day !== '') {
+                    $daily_series_sessions[$day][$skey] = $daily_series_sessions[$day][$skey] ?? ['max_idx' => -1, 'total' => $stotal];
+                    if ($sidx >= $daily_series_sessions[$day][$skey]['max_idx']) $daily_series_sessions[$day][$skey]['max_idx'] = $sidx;
+                    if ($stotal > 0) $daily_series_sessions[$day][$skey]['total'] = $stotal;
+                }
             }
         } elseif ($type === 'photo_dwell' && $album !== '' && $photo !== '') {
             $dur = max(0, min(ANALYTICS_MAX_DWELL_MS, (int)($ev['duration_ms'] ?? 0)));
             if ($dur >= 1000) {
                 $dwell_sum += $dur;
                 $dwell_count++;
+                if ($day !== '') {
+                    $daily_dwell[$day]['sum'] += $dur;
+                    $daily_dwell[$day]['count']++;
+                }
                 $pkey = $album . "\n" . $photo;
                 $photo_stats[$pkey] = $photo_stats[$pkey] ?? ['album' => $album, 'photo' => $photo, 'views' => 0, 'dwell_sum' => 0, 'dwell_count' => 0];
                 $photo_stats[$pkey]['dwell_sum'] += $dur;
@@ -3272,6 +3334,16 @@ function analytics_aggregate(int $days): array {
     unset($st);
     $load_success = array_values(array_filter($loads, fn($r) => !empty($r['success'])));
     $load_failed = array_values(array_filter($loads, fn($r) => empty($r['success'])));
+    foreach ($loads as $r) {
+        $day = analytics_event_day($r, $day_lookup);
+        if ($day === '') continue;
+        if (!empty($r['success'])) {
+            $daily_loads[$day]['sum'] += max(0, (int)($r['duration_ms'] ?? 0));
+            $daily_loads[$day]['success']++;
+        } else {
+            $daily_loads[$day]['failed']++;
+        }
+    }
     $load_avg = 0;
     if ($load_success) $load_avg = array_sum(array_map(fn($r) => max(0, (int)($r['duration_ms'] ?? 0)), $load_success)) / count($load_success);
     usort($album_stats, fn($a, $b) => $b['views'] <=> $a['views']);
@@ -3288,8 +3360,46 @@ function analytics_aggregate(int $days): array {
     usort($failure_counts, fn($a, $b) => $b['count'] <=> $a['count']);
     $completion_rates = array_column($album_stats, 'completion_rate');
     $series_completion_rates = array_column($series_stats, 'completion_rate');
+    $timeline = [
+        'unique_visitors' => [],
+        'album_views' => [],
+        'series_views' => [],
+        'series_source_clicks' => [],
+        'photo_views' => [],
+        'photos_per_session' => [],
+        'avg_dwell' => [],
+        'completion_rate' => [],
+        'series_completion_rate' => [],
+        'avg_load' => [],
+        'failed_loads' => [],
+    ];
+    foreach ($day_keys as $day) {
+        $timeline['unique_visitors'][] = count($daily_visitors[$day]);
+        foreach (['album_views', 'series_views', 'series_source_clicks', 'photo_views'] as $key) {
+            $timeline[$key][] = $daily_counts[$day][$key];
+        }
+        $session_count = count($daily_sessions[$day]);
+        $timeline['photos_per_session'][] = $session_count ? array_sum(array_map(fn($s) => count($s['photos']), $daily_sessions[$day])) / $session_count : 0;
+        $timeline['avg_dwell'][] = $daily_dwell[$day]['count'] ? $daily_dwell[$day]['sum'] / $daily_dwell[$day]['count'] : 0;
+        $album_completed = 0;
+        foreach ($daily_album_sessions[$day] as $as) {
+            $total = max(1, (int)$as['total']);
+            if (($as['max_idx'] + 1) >= $total || (($as['max_idx'] + 1) / $total) >= 0.9) $album_completed++;
+        }
+        $timeline['completion_rate'][] = $daily_album_sessions[$day] ? $album_completed / count($daily_album_sessions[$day]) : 0;
+        $series_completed = 0;
+        foreach ($daily_series_sessions[$day] as $ss) {
+            $total = max(1, (int)$ss['total']);
+            if (($ss['max_idx'] + 1) >= $total || (($ss['max_idx'] + 1) / $total) >= 0.9) $series_completed++;
+        }
+        $timeline['series_completion_rate'][] = $daily_series_sessions[$day] ? $series_completed / count($daily_series_sessions[$day]) : 0;
+        $timeline['avg_load'][] = $daily_loads[$day]['success'] ? $daily_loads[$day]['sum'] / $daily_loads[$day]['success'] : 0;
+        $timeline['failed_loads'][] = $daily_loads[$day]['failed'];
+    }
     return [
         'days' => $days,
+        'timeline_days' => $day_keys,
+        'timeline' => $timeline,
         'events_count' => count($events),
         'loads_count' => count($loads),
         'unique_visitors' => count($visitors),
@@ -3322,11 +3432,35 @@ function analytics_format_duration_ms($ms): string {
     if ($ms <= 0) return '0s';
     $s = $ms / 1000;
     if ($s < 60) return rtrim(rtrim(number_format($s, 1), '0'), '.') . 's';
-    return floor($s / 60) . 'm ' . str_pad((string)floor($s % 60), 2, '0', STR_PAD_LEFT) . 's';
+    return (int)floor($s / 60) . 'm ' . str_pad((string)(int)floor(fmod($s, 60)), 2, '0', STR_PAD_LEFT) . 's';
 }
 
 function analytics_format_percent($v): string {
     return number_format(max(0, min(1, (float)$v)) * 100, 0) . '%';
+}
+
+function analytics_sparkline_html(array $values, string $label = ''): string {
+    if (!$values) return '';
+    $vals = array_map(fn($v) => (float)$v, $values);
+    $w = 86;
+    $h = 24;
+    $pad = 2;
+    $min = min($vals);
+    $max = max($vals);
+    $range = $max - $min;
+    $count = count($vals);
+    $points = [];
+    foreach ($vals as $i => $v) {
+        $x = $count > 1 ? $pad + (($w - $pad * 2) * ($i / ($count - 1))) : $w / 2;
+        $y = $range > 0 ? $pad + (($h - $pad * 2) * (1 - (($v - $min) / $range))) : $h / 2;
+        $points[] = round($x, 2) . ',' . round($y, 2);
+    }
+    $title = $label !== '' ? '<title>' . htmlspecialchars($label) . '</title>' : '';
+    return '<svg class="analytics-sparkline" viewBox="0 0 ' . $w . ' ' . $h . '" role="img" aria-label="' . htmlspecialchars($label ?: 'Timeline') . '">' . $title . '<polyline points="' . implode(' ', $points) . '"/></svg>';
+}
+
+function analytics_metric_label(string $label, array $timeline): string {
+    return '<span class="analytics-metric-label"><span>' . htmlspecialchars($label) . '</span>' . analytics_sparkline_html($timeline, $label . ' timeline') . '</span>';
 }
 
 function analytics_admin_visits_file(): string {
@@ -3441,6 +3575,7 @@ function page_admin_analytics(int $days): void {
         return;
     }
     echo '<p class="analytics-last-visit">' . htmlspecialchars(analytics_last_visit_text(is_array($last_visit) ? $last_visit : null)) . '</p>';
+    $tl = is_array($data['timeline'] ?? null) ? $data['timeline'] : [];
     $cards = [
         ['visitors', 'unique_visitors', 'Unique visitors', analytics_format_count($data['unique_visitors']), 'count'],
         ['album', 'album_views', 'Album views', analytics_format_count($data['album_views']), 'count'],
@@ -3454,10 +3589,23 @@ function page_admin_analytics(int $days): void {
         ['performance', 'failed_loads', 'Failed image loads', analytics_format_count($data['failed_loads']), 'count'],
     ];
     echo '<section class="analytics-cards">';
-    foreach ($cards as $card) echo '<div class="analytics-card"><span>' . analytics_icon($card[0]) . htmlspecialchars($card[2]) . '</span><strong>' . htmlspecialchars($card[3]) . '</strong>' . analytics_delta_html($card[1], $data, is_array($last_visit) ? $last_visit : null, $card[4]) . '</div>';
+    foreach ($cards as $card) {
+        echo '<div class="analytics-card"><div class="analytics-card-head"><span>' . analytics_icon($card[0]) . htmlspecialchars($card[2]) . '</span>' . analytics_sparkline_html($tl[$card[1]] ?? [], $card[2] . ' timeline') . '</div><strong>' . htmlspecialchars($card[3]) . '</strong>' . analytics_delta_html($card[1], $data, is_array($last_visit) ? $last_visit : null, $card[4]) . '</div>';
+    }
     echo '</section>';
-    echo '<section class="analytics-grid2"><div>' . analytics_heading('traffic', 'Traffic') . '<p class="analytics-help">How many anonymous visitors opened albums, series, source links, and photos in this date range.</p><table><tbody><tr><th>Unique visitors</th><td>' . analytics_format_count($data['unique_visitors']) . '</td></tr><tr><th>Album views</th><td>' . analytics_format_count($data['album_views']) . '</td></tr><tr><th>Series views</th><td>' . analytics_format_count($data['series_views']) . '</td></tr><tr><th>Series source clicks</th><td>' . analytics_format_count($data['series_source_clicks']) . '</td></tr><tr><th>Photo views</th><td>' . analytics_format_count($data['photo_views']) . '</td></tr></tbody></table></div>';
-    echo '<div>' . analytics_heading('engagement', 'Engagement') . '<p class="analytics-help">How deeply visitors browse: distinct photos per session, time spent on photos, and completion rates. A visit counts as complete when the viewer reaches the final photo, or at least 90% of the photos, in that album or series.</p><table><tbody><tr><th>Photos/session</th><td>' . analytics_format_count($data['photos_per_session']) . '</td></tr><tr><th>Average time/photo</th><td>' . analytics_format_duration_ms($data['avg_dwell']) . '</td></tr><tr><th>Album completion</th><td>' . analytics_format_percent($data['completion_rate']) . '</td></tr><tr><th>Series completion</th><td>' . analytics_format_percent($data['series_completion_rate']) . '</td></tr></tbody></table></div></section>';
+    echo '<section class="analytics-grid2"><div>' . analytics_heading('traffic', 'Traffic') . '<p class="analytics-help">How many anonymous visitors opened albums, series, source links, and photos in this date range.</p><table><tbody>'
+       . '<tr><th>' . analytics_metric_label('Unique visitors', $tl['unique_visitors'] ?? []) . '</th><td>' . analytics_format_count($data['unique_visitors']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Album views', $tl['album_views'] ?? []) . '</th><td>' . analytics_format_count($data['album_views']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Series views', $tl['series_views'] ?? []) . '</th><td>' . analytics_format_count($data['series_views']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Series source clicks', $tl['series_source_clicks'] ?? []) . '</th><td>' . analytics_format_count($data['series_source_clicks']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Photo views', $tl['photo_views'] ?? []) . '</th><td>' . analytics_format_count($data['photo_views']) . '</td></tr>'
+       . '</tbody></table></div>';
+    echo '<div>' . analytics_heading('engagement', 'Engagement') . '<p class="analytics-help">How deeply visitors browse: distinct photos per session, time spent on photos, and completion rates. A visit counts as complete when the viewer reaches the final photo, or at least 90% of the photos, in that album or series.</p><table><tbody>'
+       . '<tr><th>' . analytics_metric_label('Photos/session', $tl['photos_per_session'] ?? []) . '</th><td>' . analytics_format_count($data['photos_per_session']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Average time/photo', $tl['avg_dwell'] ?? []) . '</th><td>' . analytics_format_duration_ms($data['avg_dwell']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Album completion', $tl['completion_rate'] ?? []) . '</th><td>' . analytics_format_percent($data['completion_rate']) . '</td></tr>'
+       . '<tr><th>' . analytics_metric_label('Series completion', $tl['series_completion_rate'] ?? []) . '</th><td>' . analytics_format_percent($data['series_completion_rate']) . '</td></tr>'
+       . '</tbody></table></div></section>';
     echo '<section>' . analytics_heading('album', 'Top Albums') . '<p class="analytics-help">Albums ranked by album page views. Completion is calculated per visitor session by looking at the furthest photo position reached in that album: if the session reaches the last photo, or at least 90% of the album, it counts as completed.</p><table><thead><tr><th>Album</th><th>Views</th><th>Visitors</th><th>Completion</th></tr></thead><tbody>';
     foreach ($data['top_albums'] as $row) {
         $album = $row['album'];
