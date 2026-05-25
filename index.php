@@ -2702,7 +2702,7 @@ body.page-home{display:flex;flex-direction:column;min-height:100vh}
 .lang-switch a{opacity:.35;transition:opacity .2s;text-decoration:none;color:inherit}
 .lang-switch a.ls-on{opacity:1}
 .lang-switch a:hover{opacity:.75}
-.nav-tools{position:absolute;right:24px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:12px}
+.nav-tools{position:absolute;right:24px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:flex-end;gap:4px}
 #overview-nav .nav-tools{right:16px}
 .nav-tools .lang-switch{position:static!important;transform:none!important;margin-left:0}
 .share-link{background:none;border:none;color:inherit;cursor:pointer;font:inherit;font-size:.6rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.45;padding:0}
@@ -3415,7 +3415,7 @@ function share_link_html(string $url, string $title, string $page_type, string $
 }
 
 function nav_tools_html(string $url, string $title, string $page_type, string $album = '', string $photo = '', string $series = ''): string {
-    return '<span class="nav-tools">' . share_link_html($url, $title, $page_type, $album, $photo, $series) . lang_switch_html() . '</span>';
+    return '<span class="nav-tools">' . lang_switch_html() . share_link_html($url, $title, $page_type, $album, $photo, $series) . '</span>';
 }
 
 function bi(string $de, string $en): string {
