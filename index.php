@@ -830,7 +830,7 @@ if ($a !== null) {
 
 function safe_seg(string $s): ?string {
     if ($s === '' || $s[0] === '.' || $s[0] === '_') return null;
-    return preg_match('/^[A-Za-z0-9._ ()\[\]\'!,&+-]+$/', $s) ? $s : null;
+    return preg_match('/^[\p{L}\p{N}._ ()\[\]\'!,&+-]+$/u', $s) ? $s : null;
 }
 
 function clean_route_segments(): array {
