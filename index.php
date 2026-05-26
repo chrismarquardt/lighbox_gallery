@@ -3996,6 +3996,42 @@ function analytics_photo_meta(array $data, string $album, string $photo): array 
     return $data['catalog']['photos'][$key] ?? ['album' => $album, 'photo' => $photo, 'title' => $photo, 'album_title' => $album, 'index' => 0, 'total' => 0, 'thumb' => '', 'url' => $url];
 }
 
+function analytics_photo_link_html(array $meta, string $label = '', string $sub = ''): string {
+    $title = $label !== '' ? $label : (string)($meta['title'] ?? '');
+    $url = (string)($meta['url'] ?? all_photos_url());
+    $thumb = (string)($meta['thumb'] ?? '');
+    $html = '<a class="analytics-photo" href="' . htmlspecialchars($url) . '">';
+    if ($thumb !== '') $html .= '<img src="' . htmlspecialchars($thumb) . '" alt="" loading="lazy">';
+    $html .= '<span>' . htmlspecialchars($title);
+    if ($sub !== '') $html .= '<br><span class="analytics-sub">' . htmlspecialchars($sub) . '</span>';
+    $html .= '</span></a>';
+    return $html;
+}
+
+function analytics_share_photo_meta(array $data, array $row): ?array {
+    $album = (string)($row['album'] ?? '');
+    $photo = (string)($row['photo'] ?? '');
+    if ($album !== '' && $photo !== '') return analytics_photo_meta($data, $album, $photo);
+
+    $url = (string)($row['url'] ?? '');
+    $path = rawurldecode((string)(parse_url($url, PHP_URL_PATH) ?? ''));
+    $query = (string)(parse_url($url, PHP_URL_QUERY) ?? '');
+    if ($query !== '') {
+        parse_str($query, $params);
+        $album = safe_seg((string)($params['a'] ?? '')) ?? '';
+        $photo = safe_seg((string)($params['share_image'] ?? '')) ?? '';
+        if ($album !== '' && $photo !== '') return analytics_photo_meta($data, $album, $photo);
+    }
+    $parts = route_path_parts($path);
+    if ($parts && in_array($parts[0], public_langs(), true)) array_shift($parts);
+    if (count($parts) === 4 && $parts[0] === 'album' && $parts[2] === 'photo') {
+        $album = resolve_album_seo_slug($parts[1], null) ?? '';
+        $photo = $album !== '' ? (resolve_photo_seo_slug($album, $parts[3]) ?? '') : '';
+        if ($album !== '' && $photo !== '') return analytics_photo_meta($data, $album, $photo);
+    }
+    return null;
+}
+
 function analytics_icon(string $name): string {
     $icons = [
         'visitors' => '<path d="M5.5 7.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0Z"/><path d="M3 14.2c.7-2.2 2.4-3.4 5-3.4s4.3 1.2 5 3.4"/>',
@@ -4092,31 +4128,33 @@ function page_admin_analytics(int $days): void {
     echo '<section>' . analytics_heading('photo', 'Top Photos') . '<p class="analytics-help">Photos ranked by lightbox views, with average dwell time from valid views longer than one second.</p><table><thead><tr><th>Photo</th><th>Album</th><th>Views</th><th>Avg Time</th></tr></thead><tbody>';
     foreach ($data['top_photos'] as $row) {
         $m = analytics_photo_meta($data, $row['album'], $row['photo']);
-        echo '<tr><td><a class="analytics-photo" href="' . htmlspecialchars($m['url']) . '">' . ($m['thumb'] ? '<img src="' . htmlspecialchars($m['thumb']) . '" alt="">' : '') . '<span>' . htmlspecialchars($m['title']) . '</span></a></td><td>' . htmlspecialchars($m['album_title']) . '</td><td>' . analytics_format_count($row['views']) . '</td><td>' . analytics_format_duration_ms($row['avg_dwell']) . '</td></tr>';
+        echo '<tr><td>' . analytics_photo_link_html($m) . '</td><td>' . htmlspecialchars($m['album_title']) . '</td><td>' . analytics_format_count($row['views']) . '</td><td>' . analytics_format_duration_ms($row['avg_dwell']) . '</td></tr>';
     }
     echo '</tbody></table></section>';
     echo '<section>' . analytics_heading('link', 'Top Share Links') . '<p class="analytics-help">Links visitors shared or copied from the gallery, album, series, and photo views.</p><table><thead><tr><th>Link</th><th>Type</th><th>Shares</th><th>Visitors</th></tr></thead><tbody>';
     foreach ($data['top_shares'] as $row) {
         $label = trim((string)($row['title'] ?? '')) ?: (string)$row['url'];
-        echo '<tr><td><a href="' . htmlspecialchars((string)$row['url']) . '">' . htmlspecialchars($label) . '</a><br><span class="analytics-sub">' . htmlspecialchars((string)$row['url']) . '</span></td><td>' . htmlspecialchars((string)($row['page_type'] ?? '')) . '</td><td>' . analytics_format_count($row['count']) . '</td><td>' . analytics_format_count($row['unique'] ?? 0) . '</td></tr>';
+        $share_meta = analytics_share_photo_meta($data, $row);
+        $link_html = $share_meta ? analytics_photo_link_html($share_meta, $label, (string)$row['url']) : '<a href="' . htmlspecialchars((string)$row['url']) . '">' . htmlspecialchars($label) . '</a><br><span class="analytics-sub">' . htmlspecialchars((string)$row['url']) . '</span>';
+        echo '<tr><td>' . $link_html . '</td><td>' . htmlspecialchars((string)($row['page_type'] ?? '')) . '</td><td>' . analytics_format_count($row['count']) . '</td><td>' . analytics_format_count($row['unique'] ?? 0) . '</td></tr>';
     }
     echo '</tbody></table></section>';
     echo '<section>' . analytics_heading('dropoff', 'Drop-off Points') . '<p class="analytics-help">For sessions that did not reach the final photo or the 90% completion threshold, this shows the last photo viewed before the visitor stopped browsing that album.</p><table><thead><tr><th>Album</th><th>Drop-off Photo</th><th>Index</th><th>Count</th></tr></thead><tbody>';
     foreach ($data['dropoffs'] as $row) {
         $m = analytics_photo_meta($data, $row['album'], $row['photo']);
-        echo '<tr><td>' . htmlspecialchars($m['album_title']) . '</td><td><a href="' . htmlspecialchars($m['url']) . '">' . htmlspecialchars($m['title']) . '</a></td><td>' . ((int)$row['idx'] + 1) . ' / ' . (int)$m['total'] . '</td><td>' . analytics_format_count($row['count']) . '</td></tr>';
+        echo '<tr><td>' . htmlspecialchars($m['album_title']) . '</td><td>' . analytics_photo_link_html($m) . '</td><td>' . ((int)$row['idx'] + 1) . ' / ' . (int)$m['total'] . '</td><td>' . analytics_format_count($row['count']) . '</td></tr>';
     }
     echo '</tbody></table></section>';
     echo '<section>' . analytics_heading('performance', 'Image Performance') . '<p class="analytics-help">Browser-side image timing and failures for thumbnails and full lightbox images.</p><div class="analytics-grid2"><div><h3>Slowest Successful Loads</h3><table><thead><tr><th>Image</th><th>Type</th><th>Load Time</th></tr></thead><tbody>';
     foreach ($data['slowest_loads'] as $row) {
         $m = analytics_photo_meta($data, (string)($row['album'] ?? ''), (string)($row['photo'] ?? ''));
-        echo '<tr><td><a href="' . htmlspecialchars($m['url']) . '">' . htmlspecialchars($m['title'] ?: ($row['src'] ?? 'image')) . '</a></td><td>' . htmlspecialchars((string)($row['image_type'] ?? 'unknown')) . '</td><td>' . analytics_format_duration_ms($row['duration_ms'] ?? 0) . '</td></tr>';
+        echo '<tr><td>' . analytics_photo_link_html($m, $m['title'] ?: ($row['src'] ?? 'image')) . '</td><td>' . htmlspecialchars((string)($row['image_type'] ?? 'unknown')) . '</td><td>' . analytics_format_duration_ms($row['duration_ms'] ?? 0) . '</td></tr>';
     }
     echo '</tbody></table></div><div><h3>Failed Loads</h3><table><thead><tr><th>Image</th><th>Failures</th></tr></thead><tbody>';
     foreach ($data['failed_by_image'] as $row) {
         $m = analytics_photo_meta($data, $row['album'], $row['photo']);
         $label = $m['title'] ?: ($row['src'] ?: 'image');
-        echo '<tr><td><a href="' . htmlspecialchars($m['url']) . '">' . htmlspecialchars($label) . '</a></td><td>' . analytics_format_count($row['count']) . '</td></tr>';
+        echo '<tr><td>' . analytics_photo_link_html($m, $label) . '</td><td>' . analytics_format_count($row['count']) . '</td></tr>';
     }
     echo '</tbody></table></div></div></section>';
     echo '</main>';
