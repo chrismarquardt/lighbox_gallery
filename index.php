@@ -18,6 +18,7 @@ const UPLOAD_MAX_FILES = 80;
 const UPLOAD_MAX_BYTES = 30_000_000;
 const UPLOAD_MAX_PIXELS = 80_000_000;
 const UPLOAD_MAX_LONG_EDGE = 20000;
+const GEMINI_MODEL = 'gemini-3.5-flash';
 
 if (defined('LIGHTBOX_TEST_MODE') && LIGHTBOX_TEST_MODE) {
     return;
@@ -555,6 +556,7 @@ if (isset($_GET['save_album_name']) && is_admin()) {
     $new_desc_en = trim(str_replace(["\r\n", "\r", "\n"], ' ', $_POST['description_en'] ?? ''));
     if ($new_desc !== '')    { $cfg['description'] = $new_desc; }    else { unset($cfg['description']); }
     if ($new_desc_en !== '') { $cfg['description_en'] = $new_desc_en; } else { unset($cfg['description_en']); }
+    if (($_POST['captions'] ?? '0') === '1') { $cfg['captions'] = '1'; } else { unset($cfg['captions']); }
     write_config(IMG_DIR . '/' . $ha, $cfg);
     header('Content-Type: application/json');
     echo '{"ok":true}';
@@ -665,7 +667,7 @@ if (isset($_GET['save_series']) && is_admin()) {
     $sbg = in_array($_POST['bg_color'] ?? '', $allowed_sbg, true) ? $_POST['bg_color'] : '';
     $sdata = load_series();
     $dfs = preg_replace('/[^0-9.a-z%]/', '', $_POST['desc_font_size'] ?? '');
-    $sdata[$id] = ['title' => $title, 'title_en' => $title_en, 'description' => $desc, 'description_en' => $desc_en, 'images' => $images, 'bg_color' => $sbg, 'desc_font_size' => $dfs, 'hidden' => $sdata[$id]['hidden'] ?? false, 'hero' => $sdata[$id]['hero'] ?? ''];
+    $sdata[$id] = ['title' => $title, 'title_en' => $title_en, 'description' => $desc, 'description_en' => $desc_en, 'images' => $images, 'bg_color' => $sbg, 'desc_font_size' => $dfs, 'hidden' => $sdata[$id]['hidden'] ?? false, 'hero' => $sdata[$id]['hero'] ?? '', 'captions' => ($_POST['captions'] ?? '0') === '1'];
     save_series_data($sdata);
     header('Content-Type: application/json');
     echo '{"ok":true}';
@@ -691,6 +693,53 @@ if (isset($_GET['assign_series']) && is_admin()) {
     }
     $sdata[$id]['images'] = $imgs;
     save_series_data($sdata);
+    header('Content-Type: application/json');
+    echo '{"ok":true}';
+    exit;
+}
+
+// ─── admin action: generate AI caption ──────────────────────────────────────
+if (isset($_GET['ai_caption']) && is_admin()) {
+    set_time_limit(60);
+    $csrf = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['csrf'] ?? '');
+    if (!hash_equals($_SESSION['csrf'] ?? '', $csrf)) { http_response_code(403); exit; }
+    $ha = isset($_GET['a']) ? safe_seg($_GET['a']) : null;
+    $hf = isset($_GET['f']) ? safe_seg($_GET['f']) : null;
+    if (!$ha || !$hf || !source_image_allowed($hf) || !is_file(source_image_path($ha, $hf))) { http_response_code(400); exit; }
+    ob_start();
+    header('Content-Type: application/json');
+    try {
+        if (!caption_api_key()) {
+            ob_end_clean();
+            echo json_encode(['ok' => false, 'error' => 'no_api_key']);
+            exit;
+        }
+        $bytes = compress_for_api(source_image_path($ha, $hf));
+        if ($bytes === null) {
+            ob_end_clean();
+            echo json_encode(['ok' => false, 'error' => 'Could not compress image for API']);
+            exit;
+        }
+        $result = gemini_caption($bytes, multilingual_enabled(), primary_lang_label());
+        ob_end_clean();
+        echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    } catch (Throwable $e) {
+        ob_end_clean();
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ─── admin action: save caption ──────────────────────────────────────────────
+if (isset($_GET['save_caption']) && is_admin()) {
+    $csrf = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['csrf'] ?? '');
+    if (!hash_equals($_SESSION['csrf'] ?? '', $csrf)) { http_response_code(403); exit; }
+    $ha = isset($_GET['a']) ? safe_seg($_GET['a']) : null;
+    $hf = isset($_GET['f']) ? safe_seg($_GET['f']) : null;
+    if (!$ha || !$hf) { http_response_code(400); exit; }
+    $de = trim(str_replace(["\r\n", "\r", "\n"], ' ', $_POST['caption'] ?? ''));
+    $en = trim(str_replace(["\r\n", "\r", "\n"], ' ', $_POST['caption_en'] ?? ''));
+    save_album_caption($ha, $hf, $de, $en);
     header('Content-Type: application/json');
     echo '{"ok":true}';
     exit;
@@ -805,6 +854,12 @@ if (isset($_GET['edit_series'])) {
     if (!is_admin()) { header('Location: ./'); exit; }
     $sid = in_array($_GET['edit_series'], SERIES_IDS, true) ? $_GET['edit_series'] : null;
     if ($sid) { page_series_editor($sid); exit; }
+    http_response_code(404); exit;
+}
+if (isset($_GET['caption_editor'])) {
+    if (!is_admin()) { header('Location: ./'); exit; }
+    $ca = safe_seg((string)$_GET['caption_editor']);
+    if ($ca !== null && is_dir(IMG_DIR . '/' . $ca) && images_in($ca)) { page_caption_editor($ca); exit; }
     http_response_code(404); exit;
 }
 
@@ -1356,6 +1411,85 @@ function admin_password_reset_file(): string {
 
 function admin_password_reset_requested(): bool {
     return is_file(admin_password_reset_file());
+}
+
+function lightbox_env(string $key): ?string {
+    $v = getenv($key);
+    if ($v !== false && $v !== '') return $v;
+    static $envs = null;
+    if ($envs === null) {
+        $envs = [];
+        foreach ([__DIR__ . '/.env', '/home/master/applications/chrismarquardt/private_html/.env'] as $f) {
+            if (!is_readable($f)) continue;
+            foreach (@file($f, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+                $line = trim($line);
+                if ($line === '' || $line[0] === '#') continue;
+                $eq = strpos($line, '=');
+                if ($eq === false) continue;
+                $k = trim(substr($line, 0, $eq));
+                $val = trim(substr($line, $eq + 1));
+                if (strlen($val) >= 2 && ($val[0] === '"' || $val[0] === "'") && $val[strlen($val) - 1] === $val[0]) {
+                    $val = substr($val, 1, -1);
+                }
+                if ($k !== '') $envs[$k] = $val;
+            }
+        }
+    }
+    return isset($envs[$key]) && $envs[$key] !== '' ? $envs[$key] : null;
+}
+
+function caption_api_key(): ?string {
+    return lightbox_env('LIGHTBOX_GOOGLE_API_KEY');
+}
+
+function compress_for_api(string $src): ?string {
+    ini_set('memory_limit', '512M');
+    $max = 1024;
+    foreach ([80, 65, 50, 40] as $q) {
+        $res = resized_jpeg_resource($src, $max, false);
+        if (!$res) return null;
+        ob_start();
+        imagejpeg($res, null, $q);
+        $bytes = ob_get_clean();
+        gd_destroy($res);
+        if (strlen($bytes) < 100000) return $bytes;
+        $max = 800;
+    }
+    return null;
+}
+
+function gemini_caption(string $jpegBytes, bool $multi, string $primaryLabel): array {
+    $key = caption_api_key();
+    if (!$key) return ['ok' => false, 'de' => '', 'en' => '', 'error' => 'no_api_key'];
+    if (!function_exists('curl_init')) return ['ok' => false, 'de' => '', 'en' => '', 'error' => 'cURL not available'];
+    $langMap = ['DE'=>'German','FR'=>'French','ES'=>'Spanish','IT'=>'Italian','NL'=>'Dutch','PT'=>'Portuguese','PL'=>'Polish','SV'=>'Swedish','NO'=>'Norwegian','DA'=>'Danish'];
+    $primaryLangName = $langMap[strtoupper($primaryLabel)] ?? $primaryLabel;
+    $b64 = base64_encode($jpegBytes);
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . GEMINI_MODEL . ':generateContent?key=' . urlencode($key);
+    $post = function(array $parts) use ($url): string {
+        $body = json_encode(['contents' => [['parts' => $parts]], 'generationConfig' => ['temperature' => 0.4]], JSON_UNESCAPED_SLASHES);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$body, CURLOPT_HTTPHEADER=>['Content-Type: application/json'], CURLOPT_TIMEOUT=>30]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        unset($ch);
+        if ($resp === false || $code < 200 || $code >= 300) return '';
+        $d = @json_decode($resp, true);
+        $t = trim((string)($d['candidates'][0]['content']['parts'][0]['text'] ?? ''));
+        $t = (string)preg_replace('/[\x00-\x1F\x7F]/u', ' ', $t);
+        return trim($t, '"\'` ');
+    };
+    $en = $post([
+        ['text' => 'Write a one-sentence caption (max 150 characters) for this photo in English. Plain text only, nothing else.'],
+        ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => $b64]],
+    ]);
+    if ($en === '') return ['ok' => false, 'de' => '', 'en' => '', 'error' => 'Empty response from Gemini'];
+    if (!$multi) return ['ok' => true, 'de' => '', 'en' => $en, 'error' => ''];
+    $de = $post([
+        ['text' => 'Translate the following photo caption to ' . $primaryLangName . '. Keep it to one sentence, max 150 characters. Plain text only, nothing else.' . "\n\n" . $en],
+    ]);
+    if ($de === '') $de = $en;
+    return ['ok' => true, 'de' => $de, 'en' => $en, 'error' => ''];
 }
 
 function reset_admin_password(): void {
@@ -2003,6 +2137,135 @@ function parse_config(string $dir): array {
         $out[strtolower(trim(substr($line, 0, $p)))] = trim(substr($line, $p + 1));
     }
     return $out;
+}
+
+function album_captions(string $album): array {
+    $cfg = parse_config(IMG_DIR . '/' . $album);
+    $raw = $cfg['caption_data'] ?? '';
+    if ($raw === '') return [];
+    $d = @json_decode($raw, true);
+    return is_array($d) ? $d : [];
+}
+
+function save_album_caption(string $album, string $file, string $de, string $en): void {
+    $cfg = parse_config(IMG_DIR . '/' . $album);
+    $caps = [];
+    if (isset($cfg['caption_data']) && $cfg['caption_data'] !== '') {
+        $d = @json_decode($cfg['caption_data'], true);
+        if (is_array($d)) $caps = $d;
+    }
+    if ($de !== '' || $en !== '') {
+        $entry = [];
+        if ($de !== '') $entry['caption'] = $de;
+        if ($en !== '') $entry['caption_en'] = $en;
+        $caps[$file] = $entry;
+    } else {
+        unset($caps[$file]);
+    }
+    if ($caps) {
+        $cfg['caption_data'] = json_encode($caps, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    } else {
+        unset($cfg['caption_data']);
+    }
+    write_config(IMG_DIR . '/' . $album, $cfg);
+}
+
+function caption_pair(string $album, string $file): array {
+    $caps = album_captions($album);
+    $entry = $caps[$file] ?? [];
+    return ['de' => (string)($entry['caption'] ?? ''), 'en' => (string)($entry['caption_en'] ?? '')];
+}
+
+function caption_html(string $album, string $file): string {
+    $pair = caption_pair($album, $file);
+    if ($pair['de'] === '' && $pair['en'] === '') return '';
+    return bi($pair['de'], $pair['en']);
+}
+
+function caption_editor_html(): void {
+    $has_key  = caption_api_key() !== null;
+    $ai_attr  = $has_key ? '' : ' disabled title="Add LIGHTBOX_GOOGLE_API_KEY to .env to enable AI captions"';
+    $pl       = htmlspecialchars(primary_lang_label());
+    $multi    = multilingual_enabled();
+    echo '<div id="lb-cap-edit">';
+    echo '<button type="button" id="lb-cap-ai"' . $ai_attr . ' onclick="capAI()">&#10024; AI</button>';
+    echo '<div id="lb-cap-inputs">';
+    if ($multi) {
+        echo '<input type="text" id="lb-cap-de" class="cap-in" placeholder="Caption (' . $pl . ')">';
+        echo '<input type="text" id="lb-cap-en" class="cap-in" placeholder="Caption (EN)">';
+    } else {
+        echo '<input type="text" id="lb-cap-en" class="cap-in" placeholder="Caption">';
+    }
+    echo '</div>';
+    echo '<button type="button" id="lb-cap-save" disabled onclick="capSave()">Save</button>';
+    if (!$has_key) {
+        echo '<span class="cap-no-key">Add <code>LIGHTBOX_GOOGLE_API_KEY</code> to <code>.env</code> for AI captions</span>';
+    }
+    echo '</div>';
+}
+
+function caption_editor_js(): void {
+    echo <<<'JS'
+function capCheckDirty(){
+  var btn=document.getElementById('lb-cap-save');if(!btn)return;
+  var deEl=document.getElementById('lb-cap-de'),enEl=document.getElementById('lb-cap-en');
+  var saved=window.CAPTIONS_DATA&&CAPTIONS_DATA[cur]||{de:'',en:''};
+  var de=deEl?deEl.value.trim():'',en=enEl?enEl.value.trim():'';
+  btn.disabled=(de===(saved.de||'')&&en===(saved.en||''));
+}
+function capLoadForImage(i){
+  var deEl=document.getElementById('lb-cap-de'),enEl=document.getElementById('lb-cap-en');
+  var data=window.CAPTIONS_DATA&&CAPTIONS_DATA[i]||{de:'',en:''};
+  if(deEl)deEl.value=data.de||'';
+  if(enEl)enEl.value=data.en||'';
+  capCheckDirty();
+}
+function capAI(){
+  var file=FILES[cur];if(!file)return;
+  var album=window.ALBUMS?ALBUMS[cur]:ALBUM;
+  var btn=document.getElementById('lb-cap-ai');
+  var orig=btn.textContent;
+  btn.disabled=true;btn.textContent='…';
+  fetch('?ai_caption=1&a='+encodeURIComponent(album)+'&f='+encodeURIComponent(file),{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'csrf='+encodeURIComponent(CTX_CSRF)
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d.ok===false){
+      showSeriesToast(d.error==='no_api_key'?'Add a Google AI API key to .env':d.error||'AI caption failed');
+      return;
+    }
+    var deEl=document.getElementById('lb-cap-de'),enEl=document.getElementById('lb-cap-en');
+    if(deEl&&d.de)deEl.value=d.de;
+    if(enEl&&d.en)enEl.value=d.en;
+    else if(enEl&&!document.getElementById('lb-cap-de')&&d.en)enEl.value=d.en;
+    capCheckDirty();
+    showSeriesToast('caption generated');
+  }).catch(function(){showSeriesToast('AI caption failed');})
+  .finally(function(){btn.disabled=false;btn.textContent=orig;});
+}
+function capSave(){
+  var file=FILES[cur];if(!file)return;
+  var album=window.ALBUMS?ALBUMS[cur]:ALBUM;
+  var btn=document.getElementById('lb-cap-save');
+  var deEl=document.getElementById('lb-cap-de'),enEl=document.getElementById('lb-cap-en');
+  var de=deEl?deEl.value.trim():'',en=enEl?enEl.value.trim():'';
+  btn.disabled=true;
+  fetch('?save_caption=1&a='+encodeURIComponent(album)+'&f='+encodeURIComponent(file),{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'caption='+encodeURIComponent(de)+'&caption_en='+encodeURIComponent(en)+'&csrf='+encodeURIComponent(CTX_CSRF)
+  }).then(function(r){
+    if(r.ok){
+      if(window.CAPTIONS_DATA)CAPTIONS_DATA[cur]={de:de,en:en};
+      showSeriesToast('caption saved');
+    }else{showSeriesToast('save failed');}
+  })
+  .catch(function(){showSeriesToast('save failed');})
+  .finally(function(){capCheckDirty();});
+}
+['lb-cap-de','lb-cap-en'].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener('input',capCheckDirty);});
+JS;
 }
 
 function default_album_name(string $slug): string {
@@ -2947,6 +3210,47 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .analytics-photo span{overflow-wrap:anywhere}
 @media(max-width:800px){.analytics-head{align-items:flex-start;flex-direction:column}.analytics-cards{grid-template-columns:repeat(2,1fr)}.analytics-grid2{grid-template-columns:1fr}.analytics-page{width:calc(100vw - 20px)}.analytics-page table{font-size:.76rem}.analytics-page th,.analytics-page td{padding:8px 7px}.analytics-photo img{width:36px;height:36px}}
 @media(max-width:480px){.analytics-cards{grid-template-columns:1fr}.analytics-page{overflow-x:hidden}.analytics-page section{overflow-x:auto}.analytics-page table{min-width:520px}}
+/* caption display */
+#lb-caption{position:fixed;bottom:38px;left:0;right:0;text-align:center;padding:0 80px;font-size:.82rem;opacity:.9;line-height:1.5;pointer-events:none;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.8),0 0 20px rgba(0,0,0,.6)}
+#lb.lb-admin #lb-counter{bottom:60px}
+#lb.lb-admin #lb-caption{bottom:90px}
+.series-cap{display:block;text-align:left;color:#595959;padding:4px 0 0;line-height:1.35;pointer-events:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* admin caption editor in lightbox */
+#lb-cap-edit{position:fixed;bottom:0;left:0;right:0;display:flex;gap:6px;align-items:center;padding:6px 16px;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:2}
+#lb-cap-inputs{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
+#lb-cap-ai,#lb-cap-save{background:none;border:1px solid rgba(255,255,255,.45);color:#fff;font-family:inherit;font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;padding:4px 10px;white-space:nowrap;flex-shrink:0;line-height:1.6}
+#lb-cap-ai:hover,#lb-cap-save:hover{border-color:rgba(255,255,255,.85)}
+#lb-cap-ai:disabled,#lb-cap-save:disabled{opacity:.3;cursor:default}
+.cap-in{width:100%;box-sizing:border-box;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);color:#fff;font-family:inherit;font-size:.7rem;padding:4px 8px;outline:none;line-height:1.4}
+.cap-in::placeholder{color:rgba(255,255,255,.38)}
+.cap-in:focus{border-color:rgba(255,255,255,.75);background:rgba(255,255,255,.18)}
+.cap-no-key{font-size:.58rem;opacity:.55;color:#fff;width:100%;text-align:center;line-height:1.35}
+.cap-no-key code{background:rgba(255,255,255,.12);padding:1px 4px;font-family:ui-monospace,monospace}
+/* batch caption editor page */
+@keyframes bc-spin{to{transform:rotate(360deg)}}
+.bc-toolbar{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.1)}
+.bc-count{font-size:.8rem;opacity:.55;letter-spacing:.06em}
+.bc-grid{width:100%;border-collapse:collapse}
+.bc-row{display:grid;grid-template-columns:28px 80px 1fr auto;gap:10px;align-items:center;padding:2px 20px;border-bottom:3px solid #fff;background:rgba(128,128,128,.07)}
+.bc-multi .bc-thumb{height:72px}
+.bc-cb{width:16px;height:16px;cursor:pointer;accent-color:#d96c00;flex-shrink:0}
+.bc-spinner{width:16px;height:16px;border:2px solid rgba(128,128,128,.35);border-top-color:#d96c00;border-radius:50%;animation:bc-spin .7s linear infinite;flex-shrink:0}
+.bc-thumb{width:80px;height:60px;object-fit:cover;display:block;background:rgba(255,255,255,.06)}
+.bc-inputs{display:flex;flex-direction:column;gap:5px;min-width:0}
+.bc-in{width:100%;box-sizing:border-box;background:rgba(255,255,255,.08);border:1px solid #888;color:inherit;font-family:inherit;font-size:.9rem;padding:5px 8px;outline:none;line-height:1.4}
+.bc-in:focus{border-color:#bbb;background:rgba(255,255,255,.14)}
+.bc-in::placeholder{opacity:.38}
+.bc-save{background:none;border:1px solid rgba(255,255,255,.35);color:inherit;font-family:inherit;font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;padding:5px 12px;white-space:nowrap;line-height:1.6}
+.bc-save:hover:not(:disabled){border-color:rgba(255,255,255,.8)}
+.bc-save:disabled{opacity:.3;cursor:default}
+.bc-save.bc-ok{border-color:#4caf50;color:#4caf50}
+.bc-save.bc-err{border-color:#e57373;color:#e57373}
+.bc-footer{padding:16px 20px}
+.bc-gen-btn{background:#d96c00;border:none;color:#fff;font-family:inherit;font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;padding:10px 20px;line-height:1.4}
+.bc-gen-btn:hover{background:#b85a00}
+.bc-gen-btn:disabled{opacity:.5;cursor:default}
+.bc-row-busy .bc-in{opacity:.5}
+.bc-row-done .bc-cb{accent-color:#4caf50}
 </style>
 <?php
 $_s  = load_settings();
@@ -3002,10 +3306,12 @@ if ($_bg === '#fff') {
          . '.se-copy-btn:hover{border-color:#333}'
          . '.se-delete-btn{color:#a00000;border-color:#a00000}'
          . '.se-delete-btn:hover{background:rgba(160,0,0,.1);border-color:#700}'
-         . '.tile-label{color:#fff}';
+         . '.tile-label{color:#fff}'
+         . ''
+         . '#lb-cap-edit .cap-in{color:#fff}';
 }
 $_atfg = ($_fg === '#111') ? '#fff' : '#000';
-echo "<style>.grid{gap:{$_g}px;padding-left:{$_cp}px;padding-right:{$_cp}px}.nav{font-size:{$_nf}}.tile-label{font-size:{$_tf}}.album-desc,.series-desc{font-size:{$_dfs}}html,body{background:{$_bg};color:{$_fg};--analytics-tab-fg:{$_atfg}}@media(max-width:520px){#page-nav{background:{$_bg}}}#gallery.series-mode{row-gap:{$_sm_rg}px}.series-grid,.series-desc,.series-nav,.series-h1-row,#series-main,.series-strip{max-width:{$_swd}px;margin-left:auto;margin-right:auto}.series-grid,.series-desc,.series-nav,.series-h1-row{padding-left:{$_cp}px;padding-right:{$_cp}px}#series-main.series-count-many,.series-strip.series-count-many{max-width:{$_swd_many}px}.series-strip--all{max-width:{$_swd_all}px}.series-strip--all.series-count-many{max-width:{$_swd_many}px}.series-grid{row-gap:{$_srg}}#series-main,.series-strip{gap:{$_g3}px;padding-bottom:{$_g3}px;--series-desktop-tile-size:{$_series_desktop_tile}px;--series-mobile-tile-size:{$_series_mobile_tile}px;--series-desktop-few-width:{$_series_desktop_few_width}px;--series-desktop-many-width:{$_series_desktop_many_width}px;--series-mobile-row-width:{$_series_mobile_row_width}px}@media(min-width:521px){#lb:not(.zoomed) img{padding-left:{$_cp}px;padding-right:{$_cp}px}}@media(max-width:520px){.series-grid,.series-desc,.series-nav,.series-h1-row{max-width:none;padding-left:{$_spm}px;padding-right:{$_spm}px}}{$_wm}</style>\n";
+echo "<style>.grid{gap:{$_g}px;padding-left:{$_cp}px;padding-right:{$_cp}px}.nav{font-size:{$_nf}}.tile-label{font-size:{$_tf}}.album-desc,.series-desc,.series-cap{font-size:{$_dfs}}html,body{background:{$_bg};color:{$_fg};--analytics-tab-fg:{$_atfg}}@media(max-width:520px){#page-nav{background:{$_bg}}}#gallery.series-mode{row-gap:{$_sm_rg}px}.series-grid,.series-desc,.series-nav,.series-h1-row,#series-main,.series-strip{max-width:{$_swd}px;margin-left:auto;margin-right:auto}.series-grid,.series-desc,.series-nav,.series-h1-row{padding-left:{$_cp}px;padding-right:{$_cp}px}#series-main.series-count-many,.series-strip.series-count-many{max-width:{$_swd_many}px}.series-strip--all{max-width:{$_swd_all}px}.series-strip--all.series-count-many{max-width:{$_swd_many}px}.series-grid{row-gap:{$_srg}}#series-main,.series-strip{gap:{$_g3}px;padding-bottom:{$_g3}px;--series-desktop-tile-size:{$_series_desktop_tile}px;--series-mobile-tile-size:{$_series_mobile_tile}px;--series-desktop-few-width:{$_series_desktop_few_width}px;--series-desktop-many-width:{$_series_desktop_many_width}px;--series-mobile-row-width:{$_series_mobile_row_width}px}@media(min-width:521px){#lb:not(.zoomed) img{padding-left:{$_cp}px;padding-right:{$_cp}px}}@media(max-width:520px){.series-grid,.series-desc,.series-nav,.series-h1-row{max-width:none;padding-left:{$_spm}px;padding-right:{$_spm}px}}{$_wm}</style>\n";
 ?>
 <script data-cfasync="false">
 var LB_PRIMARY_HTML_LANG=<?= json_encode(primary_html_lang_attr()) ?>;
@@ -3165,10 +3471,13 @@ function lbInstallLightbox(){
     if(window.lbAnalyticsPhotoView)lbAnalyticsPhotoView(i);
     if(!wasOpen){lbScrollY=window.scrollY;document.body.style.top='-'+lbScrollY+'px';document.body.classList.add('lb-lock');if(!window.matchMedia('(hover:hover) and (pointer:fine)').matches)lbRequestFS();var _n=document.getElementById('page-nav');if(_n)_n.classList.add('lb-hidden');}
     var target=IMGS[i],thumb=(window.THUMBS&&THUMBS[i])||'';
+    img.alt=(window.ALTS&&ALTS[i])||'';
     img.onload=null;
     if(thumb&&img.getAttribute('src')!==thumb&&img.getAttribute('src')!==target){img.src=thumb;img.style.opacity='1';}
     else if(!thumb){img.style.opacity='0';}
     document.getElementById('lb-counter').textContent=(i+1)+' / '+IMGS.length;
+    var _lbc=document.getElementById('lb-caption');if(_lbc){if(window.LB_CAPTIONS_ON&&window.CAPTIONS&&CAPTIONS[i]){_lbc.innerHTML=CAPTIONS[i];_lbc.style.display='';}else{_lbc.innerHTML='';_lbc.style.display='none';}}
+    if(typeof capLoadForImage==='function')capLoadForImage(i);
     el.classList.add('open');
     if(window.SHARE_URLS&&SHARE_URLS[i]) history.replaceState(null,'',SHARE_URLS[i]);
     else location.hash='i='+i;
@@ -3519,6 +3828,7 @@ function getting_started_guide(): void {
     echo '<li><strong>GD extension</strong> — used to resize photos into thumbnails and display images. Usually enabled by default.</li>';
     echo '<li><strong>EXIF extension</strong> — used to read photo orientation and capture date so images display the right way up. Usually enabled by default.</li>';
     echo '<li><strong>Writable <code>images/</code> folder</strong> — the web server must be able to write inside <code>images/</code> so it can save thumbnails, display images, and album settings.</li>';
+    echo '<li><em>(Optional)</em> <strong><code>LIGHTBOX_GOOGLE_API_KEY</code></strong> in <code>.env</code> + the cURL PHP extension — enables the AI Caption button that generates captions from your photos automatically.</li>';
     echo '</ul>';
     echo '<h2>How the gallery works</h2>';
     echo '<p>Each folder inside <code>images/</code> is an album. Albums are the foundation of the gallery — everything else is built on top of them.</p>';
@@ -4954,6 +5264,8 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
         echo '<textarea id="an-desc" rows="2" placeholder="Short description"' . $primary_style . '>' . $esc_desc . '</textarea>';
         echo '<p class="an-label" style="margin-top:10px">' . $desc_en_label . '</p>';
         echo '<textarea id="an-desc-en" rows="2" placeholder="English description">' . $esc_desc_en . '</textarea>';
+        $an_captions_checked = ($cfg['captions'] ?? '') === '1' ? ' checked' : '';
+        echo '<label class="sm-check" style="margin-top:14px;display:inline-flex"><input type="checkbox" id="an-captions" value="1"' . $an_captions_checked . '> Display captions in lightbox</label>';
         echo '<div class="an-btns"><button class="an-delete" onclick="anDelete()">Delete Album</button><button onclick="anClose()">Cancel</button><button class="an-save" onclick="anSave()">Save</button></div>';
         echo '</div></div>';
     }
@@ -4966,6 +5278,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo '<h1 class="album-h1">' . bi($_album_label_de . ': ' . ($cfg['name'] ?? $default_name), $_album_label_en . ': ' . (($cfg['name_en'] ?? '') ?: ($cfg['name'] ?? $default_name))) . '</h1>';
     if ($admin_early) {
         echo '<button class="nav-edit" onclick="anOpen()" title="Album settings">Album Settings</button>';
+        echo '<a class="nav-edit" href="?caption_editor=' . rawurlencode($album) . '" title="Batch caption editor">Create Captions</a>';
         echo '<button class="nav-edit" id="series-selection-toggle" onclick="seriesModeToggle()" title="Series Selection Mode">SERIES SELECT MODE OFF</button>';
     }
     echo '</div>';
@@ -5004,7 +5317,9 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
         $load_attr = 'loading="lazy"';
         $img_attr = $is_pending ? 'data-src="' . $turl . '"' : 'src="' . $turl . '"';
         echo '<button class="tile' . $pcls . '" data-idx="' . $idx . '" data-file="' . htmlspecialchars($img) . '" onclick="lb(' . $idx . ')" aria-label="' . htmlspecialchars($img) . '"' . $drag . '>';
-        echo '<img ' . $img_attr . ' alt="" draggable="false" ' . $load_attr . '>';
+        $_cap = caption_pair($album, $img);
+        $_alt = htmlspecialchars(lf(['caption' => $_cap['de'], 'caption_en' => $_cap['en']], 'caption'), ENT_QUOTES);
+        echo '<img ' . $img_attr . ' alt="' . $_alt . '" draggable="false" ' . $load_attr . '>';
         if ($admin) {
             $star = $is_hero ? '&#9733;' : '&#9734;';
             echo '<span class="admin-star' . ($is_hero ? ' is-hero' : '') . '" data-file="' . htmlspecialchars($img) . '" onclick="setHero(this,event)">' . $star . '</span>';
@@ -5029,10 +5344,12 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     $share_urls = array_map(fn(string $f) => canonical_image_url($album, $f), $imgs);
     $meta_image_urls = array_map(fn(string $f) => og_image_url($album, $f), $imgs);
     $share_index = $share_image !== null ? array_search($share_image, $imgs, true) : false;
-    echo '<div id="lb" role="dialog" aria-modal="true">';
+    echo '<div id="lb" role="dialog" aria-modal="true"' . ($admin ? ' class="lb-admin"' : '') . '>';
     echo '<span id="lb-close" onclick="lbClose()" title="Close (Esc)" role="button" aria-label="Close lightbox">' . icon_arrow_left() . '</span>';
     echo '<span id="lb-prev" onclick="lbMove(-1)" title="Previous">&#8249;</span>';
     echo '<img id="lb-img" src="" alt="" draggable="false">';
+    echo '<div id="lb-caption" style="display:none"></div>';
+    if ($admin) { caption_editor_html(); }
     echo '<span id="lb-next" onclick="lbMove(1)" title="Next">&#8250;</span>';
     echo '<button id="lb-share" class="share-link" type="button" onclick="lbShareCurrent()">' . htmlspecialchars(share_label_text()) . '</button>';
     echo '<span id="lb-counter"></span>';
@@ -5046,6 +5363,10 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo 'var SHARE_URLS=' . json_encode($share_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var META_IMAGE_URLS=' . json_encode($meta_image_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SHARE_INDEX=' . ($share_index === false ? '-1' : (string)(int)$share_index) . ';';
+    echo 'var CAPTIONS=' . json_encode(array_map(fn(string $f) => caption_html($album, $f), $imgs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';';
+    echo 'var ALTS=' . json_encode(array_map(function(string $f) use ($album) { $p = caption_pair($album, $f); return lf(['caption' => $p['de'], 'caption_en' => $p['en']], 'caption'); }, $imgs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';';
+    echo 'var CAPTIONS_DATA=' . json_encode(array_map(fn(string $f) => caption_pair($album, $f), $imgs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';';
+    echo 'var LB_CAPTIONS_ON=' . (($cfg['captions'] ?? '') === '1' ? 'true' : 'false') . ';';
     echo 'var ALBUM_PAGE_URL=' . json_encode(album_url($album), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_BACK_URL=' . json_encode(isset($_GET['from']) && $_GET['from'] === 'all' ? all_photos_url() : public_url(), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var LARGE_GEN_URL=' . json_encode(public_url('?gen_large=1'), JSON_UNESCAPED_SLASHES) . ';';
@@ -5094,6 +5415,8 @@ JS;
         echo 'var CTX_ALBUM_NAME=' . json_encode($name, JSON_UNESCAPED_SLASHES) . ';';
         echo 'var PUBLIC_ALL_URL=' . json_encode(all_photos_url(), JSON_UNESCAPED_SLASHES) . ';';
         echo 'var AN_MULTI=' . (multilingual_enabled() ? 'true' : 'false') . ';';
+        echo 'var AN_CAPTIONS_ON=' . (($cfg['captions'] ?? '') === '1' ? 'true' : 'false') . ';';
+        echo 'var CAPTIONS_API=' . (caption_api_key() !== null ? 'true' : 'false') . ';';
         echo 'dndSetup(document.getElementById("gallery"),"?save_image_order=1&a="+encodeURIComponent(CTX_ALBUM),' . json_encode($csrf) . ',"file");';
         echo <<<'JS'
 function setHero(el,e){
@@ -5104,18 +5427,19 @@ function setHero(el,e){
     body:'csrf='+encodeURIComponent(CTX_CSRF)
   }).then(function(r){if(r.ok)location.reload();});
 }
-function anOpen(){document.getElementById('an-modal').classList.add('open');var inp=document.getElementById(AN_MULTI?'an-input':'an-input-en');inp.focus();inp.select();var kh=function(e){if(e.key==='Enter')anSave();if(e.key==='Escape')anClose();};var ek=function(e){if(e.key==='Escape')anClose();};document.getElementById('an-input').onkeydown=kh;document.getElementById('an-input-en').onkeydown=kh;document.getElementById('an-desc').onkeydown=ek;document.getElementById('an-desc-en').onkeydown=ek;}
+function anOpen(){document.getElementById('an-modal').classList.add('open');document.getElementById('an-captions').checked=AN_CAPTIONS_ON;var inp=document.getElementById(AN_MULTI?'an-input':'an-input-en');inp.focus();inp.select();var kh=function(e){if(e.key==='Enter')anSave();if(e.key==='Escape')anClose();};var ek=function(e){if(e.key==='Escape')anClose();};document.getElementById('an-input').onkeydown=kh;document.getElementById('an-input-en').onkeydown=kh;document.getElementById('an-desc').onkeydown=ek;document.getElementById('an-desc-en').onkeydown=ek;}
 function anClose(){document.getElementById('an-modal').classList.remove('open');}
 function anSave(){
   var name=document.getElementById('an-input').value.trim();
   var name_en=document.getElementById('an-input-en').value.trim();
   var desc=document.getElementById('an-desc').value.trim();
   var desc_en=document.getElementById('an-desc-en').value.trim();
+  var captions=document.getElementById('an-captions').checked?'1':'0';
   if(AN_MULTI){if(!name)return;}else{if(!name_en)return;if(!name)name=name_en;if(!desc)desc=desc_en;}
   fetch('?save_album_name=1&a='+encodeURIComponent(CTX_ALBUM),{
     method:'POST',
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body:'name='+encodeURIComponent(name)+'&name_en='+encodeURIComponent(name_en)+'&description='+encodeURIComponent(desc)+'&description_en='+encodeURIComponent(desc_en)+'&csrf='+encodeURIComponent(CTX_CSRF)
+    body:'name='+encodeURIComponent(name)+'&name_en='+encodeURIComponent(name_en)+'&description='+encodeURIComponent(desc)+'&description_en='+encodeURIComponent(desc_en)+'&captions='+captions+'&csrf='+encodeURIComponent(CTX_CSRF)
   }).then(function(r){if(r.ok)location.reload();});
 }
 function anDelete(){
@@ -5163,6 +5487,7 @@ document.querySelectorAll('.sc-cb').forEach(function(cb){
 // series selection mode: apply saved state
 (function(){var on=localStorage.getItem('lb_series_mode')==='1';var g=document.getElementById('gallery');if(g)g.classList.toggle('series-mode',on);if(typeof seriesModeLabel==='function')seriesModeLabel(on);})();
 JS;
+        caption_editor_js();
         echo '</script>';
     }
 
@@ -5298,7 +5623,7 @@ function load_series(): array {
 }
 
 function empty_series_record(): array {
-    return ['title' => '', 'title_en' => '', 'description' => '', 'description_en' => '', 'images' => [], 'bg_color' => '', 'desc_font_size' => '', 'hidden' => false, 'hero' => ''];
+    return ['title' => '', 'title_en' => '', 'description' => '', 'description_en' => '', 'images' => [], 'bg_color' => '', 'desc_font_size' => '', 'hidden' => false, 'hero' => '', 'captions' => false];
 }
 
 function save_series_data(array $d): void {
@@ -5652,6 +5977,7 @@ function page_series(string $id): void {
         return;
     }
 
+    $_series_captions_on = !empty($series['captions']);
     echo '<main class="grid series-grid" id="series-gallery">';
     $img_urls = [];
     $thumb_urls = [];
@@ -5663,7 +5989,13 @@ function page_series(string $id): void {
         $large_url = image_url($img['album'], $img['file']);
         $thumb_url = thumb_url_ar($img['album'], $img['file']);
         echo '<button class="tile" data-idx="' . $idx . '" data-album="' . htmlspecialchars($img['album']) . '" data-file="' . htmlspecialchars($img['file']) . '" onclick="lb(' . $idx . ')" aria-label="' . htmlspecialchars($img['file']) . '">';
-        echo '<img src="' . htmlspecialchars($thumb_url) . '" data-large="' . htmlspecialchars($large_url) . '" alt="" draggable="false" loading="lazy">';
+        $_scap = caption_pair($img['album'], $img['file']);
+        $_salt = htmlspecialchars(lf(['caption' => $_scap['de'], 'caption_en' => $_scap['en']], 'caption'), ENT_QUOTES);
+        echo '<img src="' . htmlspecialchars($thumb_url) . '" data-large="' . htmlspecialchars($large_url) . '" alt="' . $_salt . '" draggable="false" loading="lazy">';
+        if ($_series_captions_on) {
+            $_scap = caption_html($img['album'], $img['file']);
+            if ($_scap !== '') echo '<span class="series-cap">' . $_scap . '</span>';
+        }
         echo '</button>';
         $img_urls[] = $large_url;
         $thumb_urls[] = $thumb_url;
@@ -5700,10 +6032,12 @@ function page_series(string $id): void {
         echo '<div class="series-mehr series-desc">' . $quelle . ': ' . $alb_str . '</div>';
     }
 
-    echo '<div id="lb" role="dialog" aria-modal="true">';
+    echo '<div id="lb" role="dialog" aria-modal="true"' . ($admin ? ' class="lb-admin"' : '') . '>';
     echo '<span id="lb-close" onclick="lbClose()" title="Close (Esc)" role="button" aria-label="Close lightbox">' . icon_arrow_left() . '</span>';
     echo '<span id="lb-prev" onclick="lbMove(-1)" title="Previous">&#8249;</span>';
     echo '<img id="lb-img" src="" alt="" draggable="false">';
+    echo '<div id="lb-caption" style="display:none"></div>';
+    if ($admin) { caption_editor_html(); }
     echo '<span id="lb-next" onclick="lbMove(1)" title="Next">&#8250;</span>';
     echo '<button id="lb-share" class="share-link" type="button" onclick="lbShareCurrent()">' . htmlspecialchars(share_label_text()) . '</button>';
     echo '<span id="lb-counter"></span>';
@@ -5717,6 +6051,10 @@ function page_series(string $id): void {
     echo 'var SHARE_URLS=' . json_encode($share_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var META_IMAGE_URLS=' . json_encode($meta_image_urls, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var SHARE_INDEX=-1;';
+    echo 'var CAPTIONS=' . json_encode(array_map(fn(array $img) => caption_html($img['album'], $img['file']), $valid_imgs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';';
+    echo 'var ALTS=' . json_encode(array_map(function(array $img) { $p = caption_pair($img['album'], $img['file']); return lf(['caption' => $p['de'], 'caption_en' => $p['en']], 'caption'); }, $valid_imgs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';';
+    echo 'var CAPTIONS_DATA=' . json_encode(array_map(fn(array $img) => caption_pair($img['album'], $img['file']), $valid_imgs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';';
+    echo 'var LB_CAPTIONS_ON=' . ($_series_captions_on ? 'true' : 'false') . ';';
     echo 'var LB_SERIES_ID=' . json_encode($id, JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_PAGE_URL=' . json_encode(series_url($id), JSON_UNESCAPED_SLASHES) . ';';
     echo 'var ALBUM_BACK_URL=' . json_encode(public_url(), JSON_UNESCAPED_SLASHES) . ';';
@@ -5777,7 +6115,174 @@ document.querySelectorAll('.series-source-link[data-album]').forEach(function(a)
 })();
 JS;
     echo '</script>';
+    if ($admin) {
+        $csrf = $_SESSION['csrf'] ?? '';
+        echo '<script data-cfasync="false">';
+        echo 'var CTX_CSRF=' . json_encode($csrf) . ';';
+        echo 'var CAPTIONS_API=' . (caption_api_key() !== null ? 'true' : 'false') . ';';
+        echo 'var seriesToastTimer=null;';
+        echo 'function showSeriesToast(msg){var t=document.getElementById("series-toast");if(!t)return;t.textContent=msg;clearTimeout(seriesToastTimer);t.classList.remove("show");void t.offsetWidth;t.classList.add("show");seriesToastTimer=setTimeout(function(){t.classList.remove("show");},1000);}';
+        caption_editor_js();
+        echo '</script>';
+        echo '<div id="series-toast" role="status" aria-live="polite"></div>';
+    }
     echo '<script data-cfasync="false">(function(){document.querySelectorAll("#series-gallery .tile img").forEach(function(img){function done(ok){if(!ok)lbWarn("[Lightbox] series image failed",img.currentSrc||img.src);img.closest(".tile").classList.add("loaded");}if(img.complete&&img.naturalWidth)done(true);else{img.addEventListener("load",function(){done(true);});img.addEventListener("error",function(){done(false);});}});})();</script>';
+
+    html_foot();
+}
+
+// ─── caption editor (admin) ──────────────────────────────────────────────────
+
+function page_caption_editor(string $album): void {
+    $site_title  = site_title_text();
+    $st          = htmlspecialchars($site_title);
+    $cfg         = parse_config(IMG_DIR . '/' . $album);
+    $default_name = default_album_name($album);
+    $album_name  = htmlspecialchars(lf($cfg + ['name' => $default_name, 'name_en' => ''], 'name') ?: $default_name);
+    $imgs        = images_in($album);
+    $multi       = multilingual_enabled();
+    $pl          = htmlspecialchars(primary_lang_label());
+    $has_key     = caption_api_key() !== null;
+    $csrf        = $_SESSION['csrf'] ?? '';
+
+    html_head('Create Captions — ' . $site_title, '');
+    echo '<nav class="nav" id="page-nav">';
+    echo '<a class="nav-back" href="' . htmlspecialchars(album_url($album)) . '"><span class="nav-title">' . $st . '</span></a>';
+    echo '<span class="nav-sep">/</span>';
+    echo '<span class="nav-album">' . $album_name . '</span>';
+    echo '<span class="nav-sep">/</span>';
+    echo '<span class="nav-album">Create Captions</span>';
+    echo '</nav>';
+    admin_bar_html();
+    settings_modal(albums());
+
+    echo '<div class="bc-toolbar">';
+    echo '<button class="nav-edit" onclick="bcSelectAll(this)" id="bc-sel-all">Select All</button>';
+    echo '<span class="bc-count">' . count($imgs) . ' image' . (count($imgs) === 1 ? '' : 's') . '</span>';
+    echo '</div>';
+
+    echo '<div class="bc-grid">';
+    foreach ($imgs as $file) {
+        $pair      = caption_pair($album, $file);
+        $de_esc    = htmlspecialchars($pair['de'], ENT_QUOTES);
+        $en_esc    = htmlspecialchars($pair['en'], ENT_QUOTES);
+        $file_esc  = htmlspecialchars($file, ENT_QUOTES);
+        $thumb_url = htmlspecialchars(thumb_url_ar($album, $file));
+        echo '<div class="bc-row' . ($multi ? ' bc-multi' : '') . '" data-file="' . $file_esc . '">';
+        echo '<input type="checkbox" class="bc-cb" aria-label="Select">';
+        echo '<img class="bc-thumb" src="' . $thumb_url . '" loading="lazy" alt="">';
+        echo '<div class="bc-inputs">';
+        if ($multi) {
+            echo '<input type="text" class="bc-in" data-lang="de" placeholder="Caption (' . $pl . ')" value="' . $de_esc . '" data-orig="' . $de_esc . '">';
+            echo '<input type="text" class="bc-in" data-lang="en" placeholder="Caption (EN)" value="' . $en_esc . '" data-orig="' . $en_esc . '">';
+        } else {
+            echo '<input type="text" class="bc-in" data-lang="en" placeholder="Caption" value="' . $en_esc . '" data-orig="' . $en_esc . '">';
+        }
+        echo '</div>';
+        echo '<button class="bc-save" disabled onclick="bcSaveRow(this.closest(\'.bc-row\'))">Save</button>';
+        echo '</div>';
+    }
+    echo '</div>';
+
+    echo '<div class="bc-footer">';
+    if ($has_key) {
+        echo '<button class="bc-gen-btn" onclick="bcGenSelected(this)">&#10024; Generate captions for all selected images</button>';
+    } else {
+        echo '<p class="cap-no-key" style="text-align:left;opacity:.7">Add <code>LIGHTBOX_GOOGLE_API_KEY</code> to <code>.env</code> for AI captions. You can still save captions manually.</p>';
+    }
+    echo '</div>';
+
+    echo '<script data-cfasync="false">';
+    echo 'var CTX_ALBUM=' . json_encode($album, JSON_UNESCAPED_SLASHES) . ';';
+    echo 'var CTX_CSRF=' . json_encode($csrf) . ';';
+    echo 'var BC_MULTI=' . ($multi ? 'true' : 'false') . ';';
+    echo <<<'JS'
+function bcRowDirty(row){
+  var changed=false;
+  row.querySelectorAll('.bc-in').forEach(function(inp){if(inp.value.trim()!==(inp.dataset.orig||''))changed=true;});
+  var btn=row.querySelector('.bc-save');
+  if(btn){btn.disabled=!changed;btn.classList.remove('bc-ok','bc-err');}
+}
+document.querySelectorAll('.bc-row').forEach(function(row){
+  row.querySelectorAll('.bc-in').forEach(function(inp){inp.addEventListener('input',function(){bcRowDirty(row);});});
+});
+function bcSaveRow(row){
+  return new Promise(function(resolve){
+    var file=row.dataset.file;
+    var de='',en='';
+    row.querySelectorAll('.bc-in').forEach(function(inp){if(inp.dataset.lang==='de')de=inp.value.trim();if(inp.dataset.lang==='en')en=inp.value.trim();});
+    var btn=row.querySelector('.bc-save');
+    if(btn)btn.disabled=true;
+    fetch('?save_caption=1&a='+encodeURIComponent(CTX_ALBUM)+'&f='+encodeURIComponent(file),{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'caption='+encodeURIComponent(de)+'&caption_en='+encodeURIComponent(en)+'&csrf='+encodeURIComponent(CTX_CSRF)
+    }).then(function(r){
+      if(r.ok){
+        row.querySelectorAll('.bc-in').forEach(function(inp){inp.dataset.orig=inp.value.trim();});
+        if(btn){btn.disabled=true;btn.classList.add('bc-ok');btn.textContent='Saved';setTimeout(function(){btn.textContent='Save';btn.classList.remove('bc-ok');},1200);}
+      }else{
+        if(btn){btn.disabled=false;btn.classList.add('bc-err');}
+      }
+      resolve();
+    }).catch(function(){if(btn){btn.disabled=false;btn.classList.add('bc-err');}resolve();});
+  });
+}
+function bcSelectAll(btn){
+  var cbs=document.querySelectorAll('.bc-cb');
+  var allChecked=Array.prototype.every.call(cbs,function(cb){return cb.checked;});
+  cbs.forEach(function(cb){cb.checked=!allChecked;});
+  btn.textContent=allChecked?'Select All':'Deselect All';
+}
+function bcGenSelected(btn){
+  var rows=Array.prototype.filter.call(document.querySelectorAll('.bc-row'),function(r){var cb=r.querySelector('.bc-cb');return cb&&cb.checked;});
+  if(!rows.length)return;
+  btn.disabled=true;
+  var idx=0,active=0,concurrency=3;
+  function processRow(row){
+    var file=row.dataset.file;
+    var cb=row.querySelector('.bc-cb');
+    var spinner=document.createElement('span');spinner.className='bc-spinner';
+    if(cb){cb.style.display='none';cb.parentNode.insertBefore(spinner,cb);}
+    row.classList.add('bc-row-busy');
+    function restoreCb(){spinner.remove();if(cb)cb.style.display='';}
+    function done(){active--;pump();}
+    fetch('?ai_caption=1&a='+encodeURIComponent(CTX_ALBUM)+'&f='+encodeURIComponent(file),{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'csrf='+encodeURIComponent(CTX_CSRF)
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.ok===false){
+        row.classList.remove('bc-row-busy');
+        row.classList.add('bc-row-err');
+        restoreCb();
+        done();
+        return;
+      }
+      row.querySelectorAll('.bc-in').forEach(function(inp){
+        if(inp.dataset.lang==='en'&&d.en)inp.value=d.en;
+        if(inp.dataset.lang==='de'&&d.de)inp.value=d.de;
+      });
+      bcSaveRow(row).then(function(){
+        row.classList.remove('bc-row-busy');
+        row.classList.add('bc-row-done');
+        restoreCb();
+        done();
+      });
+    }).catch(function(){
+      row.classList.remove('bc-row-busy');
+      restoreCb();
+      done();
+    });
+  }
+  function pump(){
+    while(active<concurrency&&idx<rows.length){active++;processRow(rows[idx++]);}
+    if(active===0)btn.disabled=false;
+  }
+  pump();
+}
+JS;
+    echo '</script>';
 
     html_foot();
 }
@@ -5843,6 +6348,8 @@ function page_series_editor(string $id): void {
     echo '<label class="bg-choice"><input type="radio" name="se-bg" value="#888"' . $chk('#888') . '><span class="bg-swatch bg-swatch-grey" aria-hidden="true"></span><span>Grey</span></label>';
     echo '<label class="bg-choice"><input type="radio" name="se-bg" value="#fff"' . $chk('#fff') . '><span class="bg-swatch bg-swatch-white" aria-hidden="true"></span><span>White</span></label>';
     echo '</div>';
+    $se_captions_checked = !empty($series['captions']) ? ' checked' : '';
+    echo '<label class="sm-check" style="display:inline-flex;margin-top:12px"><input type="checkbox" id="se-captions"' . $se_captions_checked . '> Display captions</label>';
     echo '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">';
     echo '<button class="se-save-btn" onclick="seSave()">Save &amp; Close</button>';
     echo '<button class="se-copy-btn" onclick="seCopyLink(this)">Copy Link</button>';
@@ -5905,10 +6412,11 @@ function seSave(){
   var desc=document.getElementById('se-desc').value;
   var descEn=document.getElementById('se-desc-en').value;
   if(!SE_MULTI){if(!title)title=titleEn;if(!desc)desc=descEn;}
+  var caps=document.getElementById('se-captions');
   fetch('?save_series=1',{
     method:'POST',
     headers:{'X-CSRF-Token':SE_CSRF},
-    body:new URLSearchParams({id:SE_ID,title:title,title_en:titleEn,description:desc,description_en:descEn,bg_color:bg?bg.value:'',order:order.join(',')})
+    body:new URLSearchParams({id:SE_ID,title:title,title_en:titleEn,description:desc,description_en:descEn,bg_color:bg?bg.value:'',order:order.join(','),captions:caps&&caps.checked?'1':'0'})
   }).then(function(r){if(r.ok)location.href=SE_SERIES_URL;});
 }
 function seRemove(btn){var tile=btn.closest('.tile');if(tile)tile.remove();}
