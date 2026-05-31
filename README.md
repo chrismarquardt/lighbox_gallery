@@ -1,6 +1,6 @@
 # Lightbox Photo Gallery
 
-![Version](https://img.shields.io/badge/version-v0.11-blue)
+![Version](https://img.shields.io/badge/version-v0.12-blue)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
@@ -241,6 +241,11 @@ Variables can be set as real environment variables or in a `.env` file beside `i
 ---
 
 ## Release notes
+
+### v0.12
+- Impressum and Privacy pages. Place `IMPRESSUM.md` and `PRIVACY.md` beside `index.php` to enable linked legal pages at `/impressum` and `/privacy`. Both files support bilingual content (German above a `---` separator, English below).
+- Admin settings cleanup. Version number moved to the top of the panel, Cache Management split into its own section, background color setting removed, `<hr>` separators between sections.
+- Markdown improvements. Lists, horizontal rules, and two-space line breaks now render correctly.
 
 ### v0.11
 - AI caption generation via Google Gemini. Per-image editor in the lightbox and batch editor page (**Album Captions**).
