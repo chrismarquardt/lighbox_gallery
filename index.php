@@ -8,7 +8,7 @@ const DEFAULT_DISPLAY_LONG_EDGE = 2000;
 const DEFAULT_DISPLAY_QUALITY = 78;
 const DEFAULT_SITE_TITLE = 'Photo Gallery';
 const DEFAULT_SITE_DESC  = 'Photo gallery';
-const APP_VERSION = 'v0.10';
+const APP_VERSION = 'v0.11';
 const SETTINGS_FILE = 'settings.json';
 const SERIES_FILE = 'series.json';
 const ANALYTICS_DIR = 'analytics';
@@ -95,6 +95,13 @@ if ($a !== null && $i !== null) { serve_image($a, $i); exit; }
 // before session setup so public tracking never creates an admin/session cookie.
 if (isset($_GET['analytics_event'])) {
     route_analytics_event();
+}
+
+if (isset($_GET['rewrite_check'])) {
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    echo '{"rewrite":true}';
+    exit;
 }
 
 // ─── session (needed for admin and page rendering) ───────────────────────────
@@ -745,6 +752,20 @@ if (isset($_GET['save_caption']) && is_admin()) {
     exit;
 }
 
+// ─── admin action: clear all captions for an album ───────────────────────────
+if (isset($_GET['clear_captions']) && is_admin()) {
+    $csrf = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['csrf'] ?? '');
+    if (!hash_equals($_SESSION['csrf'] ?? '', $csrf)) { http_response_code(403); exit; }
+    $ha = isset($_GET['a']) ? safe_seg($_GET['a']) : null;
+    if (!$ha || !is_dir(IMG_DIR . '/' . $ha)) { http_response_code(400); exit; }
+    $cfg = parse_config(IMG_DIR . '/' . $ha);
+    unset($cfg['caption_data']);
+    write_config(IMG_DIR . '/' . $ha, $cfg);
+    header('Content-Type: application/json');
+    echo '{"ok":true}';
+    exit;
+}
+
 // ─── admin action: set album hidden ──────────────────────────────────────────
 if (isset($_GET['set_album_hidden']) && is_admin()) {
     $csrf = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
@@ -991,6 +1012,10 @@ function apply_clean_route(): void {
             $_GET['a'] = $album;
             $_GET['share_image'] = $file;
         }
+        return;
+    }
+    if (count($raw_parts) === 2 && $raw_parts[0] === '_lb' && $raw_parts[1] === 'rewrite-probe') {
+        $_GET['rewrite_check'] = '1';
         return;
     }
     if ($_GET) return;
@@ -2258,6 +2283,9 @@ function capSave(){
   }).then(function(r){
     if(r.ok){
       if(window.CAPTIONS_DATA)CAPTIONS_DATA[cur]={de:de,en:en};
+      var capText=document.body.classList.contains('lang-en')?(en||de):(de||en);
+      var tileEl=document.querySelector('#gallery .tile[data-file="'+file.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"]');
+      if(tileEl){var cl=tileEl.querySelector('.tile-cap-label');if(capText){if(!cl){cl=document.createElement('span');cl.className='tile-cap-label';tileEl.appendChild(cl);}cl.textContent=capText;}else if(cl){cl.remove();}}
       showSeriesToast('caption saved');
     }else{showSeriesToast('save failed');}
   })
@@ -3142,6 +3170,7 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .tile-hidden{opacity:.3}
 .tile-hidden .vis-btn{opacity:1}
 .series-desc h1,.series-desc h2,.series-desc h3{letter-spacing:.1em;text-transform:uppercase;margin:1.2em 0 .4em;font-size:1rem;font-weight:700}
+.tile-cap-label{position:absolute;bottom:0;left:0;right:0;font-size:.62rem;line-height:1.3;padding:3px 6px;background:rgba(0,0,0,.55);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:2}
 .album-badge{position:absolute;bottom:6px;left:6px;font-size:.58rem;letter-spacing:.08em;font-weight:700;color:#fff;text-shadow:0 1px 2px #000,0 0 6px #000,0 0 10px #000;padding:2px 5px;pointer-events:none;text-transform:uppercase;z-index:5}
 .se-remove{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.65);border:none;color:#fff;font-size:.8rem;cursor:pointer;line-height:1;padding:3px 6px;z-index:5}
 .se-remove:hover{background:rgba(180,0,0,.7)}
@@ -3211,7 +3240,7 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 @media(max-width:800px){.analytics-head{align-items:flex-start;flex-direction:column}.analytics-cards{grid-template-columns:repeat(2,1fr)}.analytics-grid2{grid-template-columns:1fr}.analytics-page{width:calc(100vw - 20px)}.analytics-page table{font-size:.76rem}.analytics-page th,.analytics-page td{padding:8px 7px}.analytics-photo img{width:36px;height:36px}}
 @media(max-width:480px){.analytics-cards{grid-template-columns:1fr}.analytics-page{overflow-x:hidden}.analytics-page section{overflow-x:auto}.analytics-page table{min-width:520px}}
 /* caption display */
-#lb-caption{position:fixed;bottom:38px;left:0;right:0;text-align:center;padding:0 80px;font-size:.82rem;opacity:.9;line-height:1.5;pointer-events:none;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.8),0 0 20px rgba(0,0,0,.6)}
+#lb-caption{position:fixed;bottom:38px;left:0;right:0;text-align:center;padding:0 80px;font-size:.82rem;opacity:.9;line-height:1.5;pointer-events:none;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.8),0 0 20px rgba(0,0,0,.6);z-index:1}
 #lb.lb-admin #lb-counter{bottom:60px}
 #lb.lb-admin #lb-caption{bottom:90px}
 .series-cap{display:block;text-align:left;color:#595959;padding:4px 0 0;line-height:1.35;pointer-events:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -3245,10 +3274,12 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .bc-save:disabled{opacity:.3;cursor:default}
 .bc-save.bc-ok{border-color:#4caf50;color:#4caf50}
 .bc-save.bc-err{border-color:#e57373;color:#e57373}
-.bc-footer{padding:16px 20px}
+.bc-footer{padding:16px 20px;display:flex;align-items:center}
 .bc-gen-btn{background:#d96c00;border:none;color:#fff;font-family:inherit;font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;padding:10px 20px;line-height:1.4}
 .bc-gen-btn:hover{background:#b85a00}
 .bc-gen-btn:disabled{opacity:.5;cursor:default}
+.bc-stop-btn{background:none;border:1px solid rgba(255,255,255,.35);color:rgba(255,255,255,.7);font-family:inherit;font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;padding:10px 20px;line-height:1.4;display:none;margin-left:8px}
+.bc-stop-btn:hover{border-color:#fff;color:#fff}
 .bc-row-busy .bc-in{opacity:.5}
 .bc-row-done .bc-cb{accent-color:#4caf50}
 </style>
@@ -4844,7 +4875,7 @@ function settings_modal(array $albs): void {
   </div>
 </div>
 <script data-cfasync="false">
-var SM_CSRF=<?= json_encode($_SESSION['csrf'] ?? '') ?>;var LB_CSRF=SM_CSRF;var SM_ALBUMS=<?= json_encode(album_slugs_for_cache_reset()) ?>;
+var SM_CSRF=<?= json_encode($_SESSION['csrf'] ?? '') ?>;var LB_CSRF=SM_CSRF;var SM_ALBUMS=<?= json_encode(album_slugs_for_cache_reset()) ?>;var SM_PROBE_URL=<?= json_encode(public_url('_lb/rewrite-probe')) ?>;var smCleanUrlsInitial=document.getElementById('sm-clean-urls').checked;
 function settingsOpen(){document.getElementById('sm').classList.add('open');}
 function settingsClose(){document.getElementById('sm').classList.remove('open');}
 document.getElementById('sm').addEventListener('click',function(e){if(e.target===this)settingsClose();});
@@ -5005,9 +5036,24 @@ function settingsSave(){
   var btn=document.getElementById('sm-save');
   smPost('?save_settings=1',b).then(function(r){return r.json().catch(function(){return {ok:r.ok};});}).then(function(j){
     if(j.ok){
-      smOk(btn,j.warning?'Saved with warning':'Saved ✓');
-      if(j.warning)alert(j.warning);
-      setTimeout(function(){location.reload();},800);
+      if(b.clean_urls==='1'&&!smCleanUrlsInitial){
+        fetch(SM_PROBE_URL,{method:'GET',cache:'no-store'}).then(function(r){
+          if(!r.ok)throw new Error();return r.json();
+        }).then(function(p){
+          if(p&&p.rewrite){smOk(btn,'Saved ✓');setTimeout(function(){location.reload();},800);}
+          else throw new Error();
+        }).catch(function(){
+          smPost('?save_settings=1',Object.assign({},b,{clean_urls:'0'})).then(function(){
+            document.getElementById('sm-clean-urls').checked=false;
+            smOk(btn,'Saved ✓');
+            setTimeout(function(){location.reload();},800);
+          });
+          alert('URL rewriting is not working on this server — clean URLs have been turned off.\n\nNote: Lightbox also needs URL rewriting for image loading, so the gallery may not work at all without it.');
+        });
+      }else{
+        smOk(btn,'Saved ✓');
+        setTimeout(function(){location.reload();},800);
+      }
     }else{
       alert((j&&j.error)||'Could not save settings.');
     }
@@ -5278,7 +5324,7 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
     echo '<h1 class="album-h1">' . bi($_album_label_de . ': ' . ($cfg['name'] ?? $default_name), $_album_label_en . ': ' . (($cfg['name_en'] ?? '') ?: ($cfg['name'] ?? $default_name))) . '</h1>';
     if ($admin_early) {
         echo '<button class="nav-edit" onclick="anOpen()" title="Album settings">Album Settings</button>';
-        echo '<a class="nav-edit" href="?caption_editor=' . rawurlencode($album) . '" title="Batch caption editor">Create Captions</a>';
+        echo '<a class="nav-edit" href="?caption_editor=' . rawurlencode($album) . '" title="Batch caption editor">Album Captions</a>';
         echo '<button class="nav-edit" id="series-selection-toggle" onclick="seriesModeToggle()" title="Series Selection Mode">SERIES SELECT MODE OFF</button>';
     }
     echo '</div>';
@@ -5321,6 +5367,10 @@ function page_album(string $album, array $cfg, array $imgs, ?string $share_image
         $_alt = htmlspecialchars(lf(['caption' => $_cap['de'], 'caption_en' => $_cap['en']], 'caption'), ENT_QUOTES);
         echo '<img ' . $img_attr . ' alt="' . $_alt . '" draggable="false" ' . $load_attr . '>';
         if ($admin) {
+            $_cap_text = lf(['caption' => $_cap['de'], 'caption_en' => $_cap['en']], 'caption');
+            if ($_cap_text !== '') {
+                echo '<span class="tile-cap-label">' . htmlspecialchars($_cap_text) . '</span>';
+            }
             $star = $is_hero ? '&#9733;' : '&#9734;';
             echo '<span class="admin-star' . ($is_hero ? ' is-hero' : '') . '" data-file="' . htmlspecialchars($img) . '" onclick="setHero(this,event)">' . $star . '</span>';
             echo '<div class="series-checks" onclick="event.stopPropagation()">';
@@ -5898,7 +5948,7 @@ function admin_bar_html(): void {
     }
     $actions .= '<a href="' . htmlspecialchars(analytics_admin_url()) . '">Analytics</a>';
     $actions .= '<a href="#" onclick="settingsOpen();return false">General Settings</a>';
-    $actions .= '<a href="#" onclick="fetch(\'./\',{method:\'POST\',headers:{\'X-CSRF-Token\':\'' . $csrf_tok . '\'},body:new URLSearchParams({logout:1}),cache:\'no-store\',credentials:\'same-origin\'}).then(()=>location.replace(\'./\'));return false">Logout</a>';
+    $actions .= '<a href="#" onclick="fetch(\'./\',{method:\'POST\',headers:{\'X-CSRF-Token\':\'' . $csrf_tok . '\'},body:new URLSearchParams({logout:1}),cache:\'no-store\',credentials:\'same-origin\'}).then(()=>location.replace(location.href));return false">Logout</a>';
     echo '<div class="admin-bar"><span class="admin-bar-label">Admin Mode <span class="admin-bar-version">' . htmlspecialchars(APP_VERSION) . '</span></span><div class="admin-bar-actions">' . $actions . '</div></div>';
     echo '<script data-cfasync="false">';
     echo 'function seriesModeLabel(on){var b=document.getElementById("series-selection-toggle");if(b)b.textContent=on?"SERIES SELECT MODE ON":"SERIES SELECT MODE OFF";}';
@@ -6145,13 +6195,13 @@ function page_caption_editor(string $album): void {
     $has_key     = caption_api_key() !== null;
     $csrf        = $_SESSION['csrf'] ?? '';
 
-    html_head('Create Captions — ' . $site_title, '');
+    html_head('Album Captions — ' . $site_title, '');
     echo '<nav class="nav" id="page-nav">';
     echo '<a class="nav-back" href="' . htmlspecialchars(album_url($album)) . '"><span class="nav-title">' . $st . '</span></a>';
     echo '<span class="nav-sep">/</span>';
     echo '<span class="nav-album">' . $album_name . '</span>';
     echo '<span class="nav-sep">/</span>';
-    echo '<span class="nav-album">Create Captions</span>';
+    echo '<span class="nav-album">Album Captions</span>';
     echo '</nav>';
     admin_bar_html();
     settings_modal(albums());
@@ -6179,14 +6229,16 @@ function page_caption_editor(string $album): void {
             echo '<input type="text" class="bc-in" data-lang="en" placeholder="Caption" value="' . $en_esc . '" data-orig="' . $en_esc . '">';
         }
         echo '</div>';
-        echo '<button class="bc-save" disabled onclick="bcSaveRow(this.closest(\'.bc-row\'))">Save</button>';
+        echo '<button class="bc-save" disabled onclick="bcSaveRow(this.closest(\'.bc-row\'))">Saved</button>';
         echo '</div>';
     }
     echo '</div>';
 
     echo '<div class="bc-footer">';
     if ($has_key) {
-        echo '<button class="bc-gen-btn" onclick="bcGenSelected(this)">&#10024; Generate captions for all selected images</button>';
+        echo '<button class="bc-gen-btn" id="bc-gen-btn" onclick="bcGenSelected(this)">&#10024; Generate captions for all selected images</button>';
+        echo '<button class="bc-stop-btn" id="bc-stop-btn" onclick="bcStopGen()">&#9632; Stop</button>';
+        echo '<button class="bc-gen-btn" onclick="bcClearAll()" style="margin-left:8px;background:#555">Erase captions for selected images</button>';
     } else {
         echo '<p class="cap-no-key" style="text-align:left;opacity:.7">Add <code>LIGHTBOX_GOOGLE_API_KEY</code> to <code>.env</code> for AI captions. You can still save captions manually.</p>';
     }
@@ -6201,7 +6253,7 @@ function bcRowDirty(row){
   var changed=false;
   row.querySelectorAll('.bc-in').forEach(function(inp){if(inp.value.trim()!==(inp.dataset.orig||''))changed=true;});
   var btn=row.querySelector('.bc-save');
-  if(btn){btn.disabled=!changed;btn.classList.remove('bc-ok','bc-err');}
+  if(btn){btn.disabled=!changed;btn.textContent=changed?'Save':'Saved';btn.classList.remove('bc-ok','bc-err');}
 }
 document.querySelectorAll('.bc-row').forEach(function(row){
   row.querySelectorAll('.bc-in').forEach(function(inp){inp.addEventListener('input',function(){bcRowDirty(row);});});
@@ -6220,7 +6272,7 @@ function bcSaveRow(row){
     }).then(function(r){
       if(r.ok){
         row.querySelectorAll('.bc-in').forEach(function(inp){inp.dataset.orig=inp.value.trim();});
-        if(btn){btn.disabled=true;btn.classList.add('bc-ok');btn.textContent='Saved';setTimeout(function(){btn.textContent='Save';btn.classList.remove('bc-ok');},1200);}
+        if(btn){btn.disabled=true;btn.classList.add('bc-ok');btn.textContent='Saved ✓';setTimeout(function(){btn.textContent='Saved';btn.classList.remove('bc-ok');},1200);}
       }else{
         if(btn){btn.disabled=false;btn.classList.add('bc-err');}
       }
@@ -6234,18 +6286,23 @@ function bcSelectAll(btn){
   cbs.forEach(function(cb){cb.checked=!allChecked;});
   btn.textContent=allChecked?'Select All':'Deselect All';
 }
+var bcStopped=false;
+function bcStopGen(){bcStopped=true;}
 function bcGenSelected(btn){
   var rows=Array.prototype.filter.call(document.querySelectorAll('.bc-row'),function(r){var cb=r.querySelector('.bc-cb');return cb&&cb.checked;});
   if(!rows.length)return;
+  bcStopped=false;
   btn.disabled=true;
+  var stopBtn=document.getElementById('bc-stop-btn');if(stopBtn)stopBtn.style.display='';
   var idx=0,active=0,concurrency=3;
+  function finish(){btn.disabled=false;if(stopBtn)stopBtn.style.display='none';}
   function processRow(row){
     var file=row.dataset.file;
     var cb=row.querySelector('.bc-cb');
     var spinner=document.createElement('span');spinner.className='bc-spinner';
     if(cb){cb.style.display='none';cb.parentNode.insertBefore(spinner,cb);}
     row.classList.add('bc-row-busy');
-    function restoreCb(){spinner.remove();if(cb)cb.style.display='';}
+    function restoreCb(){spinner.remove();if(cb){cb.style.display='';cb.checked=false;}}
     function done(){active--;pump();}
     fetch('?ai_caption=1&a='+encodeURIComponent(CTX_ALBUM)+'&f='+encodeURIComponent(file),{
       method:'POST',
@@ -6276,10 +6333,21 @@ function bcGenSelected(btn){
     });
   }
   function pump(){
-    while(active<concurrency&&idx<rows.length){active++;processRow(rows[idx++]);}
-    if(active===0)btn.disabled=false;
+    while(!bcStopped&&active<concurrency&&idx<rows.length){active++;processRow(rows[idx++]);}
+    if(active===0)finish();
   }
   pump();
+}
+function bcClearAll(){
+  var rows=Array.prototype.filter.call(document.querySelectorAll('.bc-row'),function(r){var cb=r.querySelector('.bc-cb');return cb&&cb.checked;});
+  if(!rows.length)return;
+  if(!confirm('Erase captions for '+rows.length+' selected image'+(rows.length===1?'':'s')+'? This cannot be undone.'))return;
+  rows.forEach(function(row){
+    row.querySelectorAll('.bc-in').forEach(function(inp){inp.value='';});
+    row.classList.remove('bc-row-done','bc-row-err');
+    var cb=row.querySelector('.bc-cb');if(cb)cb.checked=false;
+    bcSaveRow(row);
+  });
 }
 JS;
     echo '</script>';
