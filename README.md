@@ -1,358 +1,187 @@
 # Lightbox Photo Gallery
 
-Lightbox is a single-file PHP photo gallery for photographers and small
-portfolio sites. Drop `index.php` onto a PHP-capable web server, add albums
-under `images/`, and the app builds fast thumbnails and display images on
-demand.
+![Version](https://img.shields.io/badge/version-v0.11-blue)
+![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4)
+![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
-The public gallery is curated-series first: visitors initially see named series
-instead of a raw album list. Albums remain the source organization underneath,
-while the public entry point highlights selected bodies of work, lightbox
-viewing, keyboard navigation, multilingual labels, SEO metadata, and optional
-privacy-conscious local analytics.
+A single-file PHP photo gallery for photographers and small portfolio sites. Drop one file onto any PHP server. No database, no build step, no dependencies.
 
-Created by Chris Marquardt (`chris@chrismarquardt.com`). Lightbox was built
-mostly with AI-assisted coding, with care taken to keep the code robust,
-simple, and security-conscious. It has been running well in production at
-`https://chrismarquardt.com/photo/`.
+**Live example:** [chrismarquardt.com/photo](https://chrismarquardt.com/photo/)
 
-## What It Enables
+---
 
-- Publish a portfolio-style photo gallery without a database or build step.
-- Organize photos into albums using normal folders, then present selected
-  images as curated series on the public landing page.
-- Build curated series from images across one or more albums without
-  duplicating the master files.
-- Offer an All Photos link from the series landing page to the full album
-  overview.
-- Show source links on series pages so visitors can jump to the originating
-  album or albums.
-- Generate thumbnails and large display images automatically from originals.
-- Manage uploads, album metadata, series, settings, cache cleanup, and local
-  analytics from the browser.
-- Keep analytics local as JSONL files, with no external analytics provider.
-- Serve SEO-friendly metadata, Open Graph/Twitter cards, and a sitemap.
+## What it does
 
-## Requirements
+Lightbox lets you publish a photo gallery that puts curated series front and centre. Visitors see handpicked collections of your best work first. Albums stay organised in the background as the source for images. A full album overview is always one click away.
 
-- PHP 7.4 or newer.
-- PHP GD extension with JPEG and PNG support. WebP support is recommended if
-  you want to upload WebP files.
-- A web server that can run PHP, such as Apache, Caddy with `php-fpm`, or
-  Nginx with `php-fpm`.
-- Write access for the web server user to:
-  - the gallery directory, for `settings.json`, `series.json`, and admin state;
-  - `images/` and album folders, for uploads, album settings, image ordering,
-    thumbnails, and large display-image caches;
-  - `analytics/` if local analytics is enabled.
+### Key features
 
-No database, Composer install, Node install, or external service is required.
+- **Zero dependencies.** One PHP file, no database, no Composer, no Node.
+- **Curated series.** Present edited stories and projects. Pull images from multiple albums without copying files.
+- **AI captions.** Generate per-photo captions via Google Gemini (optional). Edit and save them per image or in batch.
+- **Auto thumbnails.** Generated on demand from originals. Caches are safe to delete.
+- **Multilingual.** English only, or English plus a second language of your choice. Separate titles, descriptions, and captions per language, with language-prefixed clean URLs.
+- **Clean URLs.** SEO-friendly `/album/name` and `/series/name` paths. Automatic `.htaccess` on Apache. Verified before enabling.
+- **Local analytics.** Anonymous and privacy-conscious. Stored as JSONL files with no external service.
+- **Open Graph and sitemap.** Metadata for social sharing and search engines.
+- **Admin dashboard.** Settings, cache management, analytics, and visibility toggles, all from the browser.
 
-## Distribution Contents
+---
 
-A minimal production install needs:
+## Getting started
+
+### Requirements
+
+- PHP 7.4 or newer
+- PHP GD extension with JPEG/PNG support (WebP recommended)
+- A web server: Apache, Caddy + php-fpm, or Nginx + php-fpm
+- Write access for the web server user to the gallery directory and `images/`
+
+### Installation
+
+1. Copy `index.php` to a directory served by your web server and make the directory writable by the web server.
+2. Open the gallery URL in a browser, for example `https://example.com/gallery/`.
+
+Lightbox creates `images/` automatically and shows a getting started guide. The following files and folders are created as you use the app:
 
 ```text
-index.php
+images/                        created on first page load
+settings.json                  created when you save settings
+series.json                    created when you create a series
+analytics/                     created when analytics is first enabled
+.lightbox_admin_password.php   created when you set your admin password
 ```
 
-Recommended supporting files:
-
-```text
-fonts/                 optional local Montserrat webfonts
-README.md              this documentation
-LICENSE
-RELEASENOTES_v*.txt
-```
-
-Gallery content and runtime data normally live on the server and should not be
-overwritten during app updates:
-
-```text
-images/
-settings.json
-series.json
-analytics/
-.htaccess
-.lightbox_admin_password.php
-```
-
-## Installation
-
-1. Copy `index.php` to a directory served by your PHP web server.
-2. Create an `images/` directory beside `index.php`.
-3. Create one folder per album inside `images/`, for example:
+3. Create one subfolder per album inside `images/` and place your photos in it:
 
    ```text
-   images/my-first-album/
+   images/
+     my-first-album/
+       photo-001.jpg
+       photo-002.jpg
    ```
 
-4. Put JPEG, PNG, or WebP photos into the album folder.
-5. Make the gallery directory, `images/`, and all album folders writable by the
-   web server user.
-6. Open the gallery URL in a browser.
+4. Reload the gallery. Thumbnails and display images are generated automatically on first view.
 
-The gallery will discover albums automatically. Generated thumbnails are stored
-in `images/<album>/thumbs/ar/`; generated display images are stored in
-`images/<album>/large/`. Both folders are caches and can be deleted safely.
+### Admin setup
 
-## Fonts
+Navigate to `/admin` on your gallery URL:
 
-Lightbox is designed around Montserrat, but font files are not required for the
-app to run and may not be included in every distribution package. For the
-intended visual appearance, download Montserrat from Google Fonts
-(`https://fonts.google.com/specimen/Montserrat`) or the upstream project
-(`https://github.com/JulietaUla/Montserrat`), then place these exact WOFF2
-files beside `index.php`:
+```
+https://example.com/gallery/admin
+```
+
+On first access you'll be prompted to create a password. Only a bcrypt hash is stored.
+
+To reset the password, create an empty `reset-pass.txt` file beside `index.php`, then open `/admin` again.
+
+#### Password file location
+
+By default the hash is saved as `.lightbox_admin_password.php` beside `index.php`, inside the web root. This is safe as long as your server executes `.php` files rather than serving them as plain text — PHP will run the file and produce no output. However, placing it in the web root carries risk:
+
+- If PHP is ever misconfigured or removed, the file is served as plain text and the hash is exposed. An attacker could attempt an offline brute-force attack against it.
+- A server migration or configuration change can silently break `.php` execution without obvious symptoms.
+- The file is not protected by the `.htaccess` block Lightbox writes for Apache.
+
+The safer option is to store it outside the public web root. Set `LIGHTBOX_ADMIN_PASSWORD_FILE` before your first admin login:
+
+```text
+LIGHTBOX_ADMIN_PASSWORD_FILE=/home/myuser/private_html/.lightbox_admin_password.php
+```
+
+Set this as an environment variable or in your `.env` file. The directory must be writable by the web server so the file can be created, and the file must be readable by the web server so the hash can be verified on login. If you have already set a password, move the existing file to the new location and update the variable before reloading.
+
+### Fonts
+
+Lightbox is designed for Montserrat but works without it. For the intended appearance, place these files beside `index.php`:
 
 ```text
 fonts/montserrat-latin.woff2
 fonts/montserrat-latin-ext.woff2
 ```
 
-If the files are missing, the gallery still works. Browsers will use the next
-available sans-serif fallback font, so layout and spacing may look slightly
-different from the intended design.
+Download from [Google Fonts](https://fonts.google.com/specimen/Montserrat) or [the upstream project](https://github.com/JulietaUla/Montserrat).
 
-## Admin Setup
+---
 
-Open admin mode at `/admin`:
+## Using the gallery
 
-```text
-https://example.com/gallery/admin
-```
+### Lightbox viewer
 
-On first access, create a long unique password. Lightbox stores only a one-way
-password hash.
+Click any photo to open it full-screen. Navigate with arrow keys or the on-screen buttons. Press Escape to close. On mobile, swipe left and right to move between photos and pinch to zoom.
 
-For stronger isolation, set `LIGHTBOX_ADMIN_PASSWORD_FILE` before first admin
-setup to a writable path outside the public web root, for example:
+### Albums
 
-```text
-LIGHTBOX_ADMIN_PASSWORD_FILE=/var/www/private/lightbox-admin-password.php
-```
+Albums are folders inside `images/`. Add photos by copying files directly to the server. Images are sorted by EXIF date, with alphabetical fallback. Admin-managed ordering overrides this.
 
-Admin mode enables:
+In admin mode, albums have additional controls:
 
-- browser uploads for JPEG, PNG, and WebP images;
-- new album creation;
-- album titles, descriptions, visibility, hero images, and ordering;
-- curated series creation and editing;
-- multilingual gallery labels and titles;
-- visual settings such as spacing, font sizes, image quality, and background;
-- thumbnail and display-image cache cleanup;
-- optional local analytics dashboard.
+- **Drag and drop** to reorder images. The new order is saved immediately.
+- **Star icon** on each thumbnail to set the hero (cover) image for the album tile.
+- **Visibility toggle** to hide or show an album from public view without deleting it.
+- **Aspect ratio toggle** to switch the grid between square crops and natural proportions.
+- **Album Settings** to edit the album title, description, and caption display. The caption display toggle enables or disables captions shown below photos in the lightbox.
+- **Series Selection Mode** to add or remove individual photos from any series, using checkboxes directly on the album grid.
 
-To reset the admin password, create an empty `reset-pass.txt` file beside
-`index.php`, then open `/admin`. Lightbox removes the reset file, deletes the
-stored hash, and shows the password setup screen again.
+### Curated series
 
-## Curated Series
+Series are the public entry point. From admin mode:
 
-Curated series are the main public presentation layer. When at least one
-visible series exists, the home page shows the series grid first and does not
-show the album overview by default. This lets the gallery lead with edited
-stories, portfolios, projects, or themes rather than exposing the folder
-structure first.
+1. Create a series from the home page.
+2. Open an album, enable **Series Selection Mode**, and select images.
+3. Return to the series editor to set order, title, description, hero image, and visibility.
 
-Albums are still important: they hold the master images, generated caches, and
-album metadata. A series can pull images from one album or combine images from
-several albums without copying files. Each series page shows a source section at
-the bottom with links back to the originating album or albums. The home page
-also includes a configurable All Photos link that opens the complete album
-overview for visitors who want to browse everything.
+A series can draw images from multiple albums. The source album links are shown at the bottom of each series page.
 
-Admins create and manage series from `/admin`: create a series, open an album,
-enable Series Selection Mode, select the images that belong to the series, then
-return to the series editor to set order, title, description, hero image,
-visibility, and sources.
+### AI captions (optional)
 
-## Album Structure
+Add a Google AI API key to enable automatic caption generation:
 
 ```text
-images/
-  my-first-album/
-    photo-001.jpg
-    photo-002.jpg
-    config.txt       optional album metadata, managed by admin mode
-    thumbs/ar/       generated thumbnails
-    large/           generated display images
+LIGHTBOX_GOOGLE_API_KEY=your-key-here
 ```
 
-Master images stay directly in `images/<album>/`. Generated folders are caches.
-Lightbox sorts images by EXIF `DateTimeOriginal` when available, with an
-alphabetical fallback. Admin-managed order overrides are saved in album config.
+Set this as an environment variable or in a `.env` file beside `index.php`. Once set:
 
-## Adding and Removing Images
+- Use the caption bar in the lightbox to generate or edit captions per image.
+- Use **Album Captions** (next to Album Settings) for batch generation across an entire album. Select images, generate, save, or erase in bulk.
 
-There are two ways to add images.
+Captions are stored in the album's `config.txt` and displayed in the lightbox and optionally on the album grid.
 
-In admin mode, use **Upload Images**. You can upload JPEG, PNG, or WebP files
-to an existing album, or create a new album during upload. The app validates
-file type, file size, image dimensions, and batch size before saving the
-masters into `images/<album>/`.
+### Clean URLs
 
-On the server, you can also add files directly. Create or choose an album folder
-inside `images/`, copy JPEG, PNG, or WebP files into it, make sure the web
-server can read the files and write to the album folder, then reload the
-gallery. Lightbox discovers the images and generates thumbnails and display
-copies when they are first needed.
+Enable clean URLs under **Admin Mode → General Settings → URLs & SEO**. On Apache, Lightbox writes its own `.htaccess` block automatically. On other servers, configure your web server to route missing paths to `index.php`.
 
-Removing images from a curated series does not delete the source file. Open the
-series editor from admin mode and remove the image there, or open the source
-album, enable Series Selection Mode, and uncheck that image for the series. The
-master image remains in its album and may still appear in All Photos or another
-series.
+Lightbox verifies that rewriting actually works before saving the setting. If the probe fails, the setting is reverted and an error is shown.
 
-To permanently remove an individual image from the gallery, delete the master
-file from its `images/<album>/` folder on the server. You may also delete the
-matching generated files from that album's `thumbs/ar/` and `large/` cache
-folders, but that is only cleanup; missing or stale cache files are ignored or
-rebuilt as needed. If the image was used in a series, remove it from that series
-as well so the curation stays tidy.
+> **Note:** URL rewriting is required for image loading regardless of this setting. Lightbox always serves thumbnails and display images through `_lb/thumb/` and `_lb/large/` routes.
 
-To remove a whole album, use the album settings dialog in admin mode. Album
-deletion requires two confirmations and permanently removes the album folder,
-uploaded master images, generated caches, and related series assignments. Keep
-backups before deleting albums or master files.
-
-## Upload Limits
-
-Browser uploads are limited by the app to:
-
-- 80 images per request;
-- 30 MB per file;
-- 20,000 px maximum long edge;
-- 80,000,000 pixels maximum per image.
-
-Your PHP and web server upload limits must also be high enough for the files
-you expect to accept.
-
-## Security Notes
-
-Protect master images and runtime data at the web server layer when possible.
-Visitors should receive images through `index.php` routes such as
-`?a=<album>&t=<file>` and `?a=<album>&i=<file>`.
-
-If you use Apache and allow `.htaccess`, Lightbox can create and update its own
-marked `.htaccess` block when you enable clean URLs in settings. The block
-disables directory indexes, blocks direct access to master images, blocks raw
-analytics files, and routes optional clean URLs. Existing `.htaccess` content
-outside the `# BEGIN Lightbox` / `# END Lightbox` block is preserved.
-
-If you use Caddy, place the original-image block before file/PHP serving rules:
+For Caddy, add before your PHP block:
 
 ```caddyfile
 @originals {
-	path_regexp originals ^/images/[^/]+/[^/]+$
+    path_regexp originals ^/images/[^/]+/[^/]+$
 }
 respond @originals 404
 
 route {
-	respond @originals 404
-	try_files {path} {path}/ /index.php?lb_path={path}&{query}
-	php_fastcgi 127.0.0.1:9000
+    respond @originals 404
+    try_files {path} {path}/ /index.php?lb_path={path}&{query}
+    php_fastcgi 127.0.0.1:9000
 }
 ```
 
-Generated `thumbs/` and `large/` folders are caches. They may remain directly
-web-readable if your server requires that, but Lightbox can serve generated
-images through `index.php`.
+### Local analytics
 
-## Optional Clean URLs
+Enable under **Admin Mode → General Settings → Privacy & Analytics**. Events are stored as append-only JSONL files in `analytics/`. No cookies, no external service, no full IP addresses.
 
-Query-string URLs always work:
+Reset by deleting `analytics/events-*.jsonl` and `analytics/image-loads-*.jsonl`.
 
-```text
-?a=<album>
-?a=<album>&i=<file>
-?s=s1
-?sitemap=1
-```
-
-To prefer clean album, series, and image URLs, enable Admin Mode > General
-Settings > URLs & SEO > Clean URLs, or set this in `settings.json`:
-
-```json
-{
-  "clean_urls": true
-}
-```
-
-On Apache-compatible servers where the gallery folder is writable, saving the
-setting creates or updates a marked Lightbox block in `.htaccess` automatically.
-If `.htaccess` cannot be written, the setting is still saved and the admin UI
-shows a warning so you can add the rewrite manually.
-
-For Caddy, Nginx, and other servers, configure the web server to rewrite missing
-files and directories to `index.php`. Legacy clean public routes are still
-accepted:
-
-```text
-/<album>
-/<album>/<image-file>
-```
-
-For SEO-style public links, Lightbox now generates:
-
-```text
-/<lang>/
-/<lang>/all
-/<lang>/admin
-/<lang>/admin/analytics
-/<lang>/admin/series/<series-id>
-/<lang>/sitemap.xml
-/<lang>/series/<localized-series-slug>
-/<lang>/album/<localized-album-slug>
-/<lang>/album/<localized-album-slug>/photo/<photo-slug>
-```
-
-When multilingual mode is enabled, `<lang>` is `de` or `en`. Album and series
-slugs are generated from the title in that language and resolve back to the
-same internal album folder or series ID. Photo slugs are generated from the
-source filename, so both language URLs use the same thumbnail and large-image
-cache files. Lightbox emits canonical and `hreflang` links for the language
-variants. Inbound `.html` variants are accepted as aliases. Query-string URLs
-such as `?a=<album>`, `?a=<album>&share_image=<file>`, `?all`, `?admin`, and
-`?s=s1` continue to work as fallbacks.
-
-## Local Analytics
-
-Local analytics can be enabled from Admin Mode > General Settings > Privacy &
-Analytics. Events are written as append-only JSONL files in `analytics/`:
-
-```text
-analytics/events-YYYY-MM-DD.jsonl
-analytics/image-loads-YYYY-MM-DD.jsonl
-analytics/admin-visits.json
-```
-
-Tracked data includes anonymous visitor/session IDs, album views, series views,
-source-link clickthroughs, share clicks, photo views, photo dwell time, image
-load timing, and image load failures. The admin dashboard includes 7-day and
-30-day views with inline timeline sparklines for the main traffic, engagement,
-sharing, and performance values.
-
-Lightbox does not use Google Analytics, external analytics services, full IP
-addresses, full user agents, cookies, secrets, or admin-only URLs for analytics.
-
-Reset analytics by deleting:
-
-```text
-analytics/events-*.jsonl
-analytics/image-loads-*.jsonl
-```
+---
 
 ## Updating
 
-For a normal update, replace only:
-
-```text
-index.php
-```
-
-Do not overwrite server-owned gallery content or runtime files unless you are
-intentionally migrating or restoring them:
+Replace only `index.php`. Do not overwrite:
 
 ```text
 images/
@@ -362,67 +191,80 @@ analytics/
 .lightbox_admin_password.php
 ```
 
-This repository includes `deploy.sh` for rsync-based deployments. Configure:
+---
+
+## Security notes
+
+- Admin mode is protected by a password hash stored outside the web root (configurable via `LIGHTBOX_ADMIN_PASSWORD_FILE`).
+- All admin write endpoints require a CSRF token.
+- Master images are served through `index.php` routes, not directly. The `.htaccess` block blocks direct access when on Apache.
+- Hidden albums are not accessible via any route, including image-serving endpoints.
+
+---
+
+## For developers
+
+### Project structure
 
 ```text
-LIGHTBOX_DEPLOY_HOST=user@example.com
-LIGHTBOX_DEPLOY_PATH=/path/to/gallery
+index.php     the entire application
 ```
 
-Then preview or deploy:
+### Running locally
 
 ```bash
-./deploy.sh --dry-run
-./deploy.sh
-```
-
-## Development
-
-Run the standard checks from the repository root:
-
-```bash
+# Syntax check
 php -l index.php
-php tests/run.php
 ```
 
-The test harness creates temporary gallery data and does not modify your real
-`images/` directory.
+### Architecture notes
 
-For local Caddy + `php-fpm` development, the included `Caddyfile` serves the
-gallery at `https://localhost:3024`.
+The app is intentionally a single file. All routing, rendering, admin logic, image processing, analytics, and API integration live in `index.php`. Key internal sections:
 
-## Release Notes
+- **`apply_clean_route()`** maps incoming URL paths to `$_GET` parameters before any other routing.
+- **`page_album()` / `page_series()`** are the main page renderers.
+- **`page_caption_editor()`** is the batch caption editor page.
+- **`gemini_caption()`** calls the Gemini API. English-first, then translated.
+- **`save_album_caption()` / `album_captions()`** handle caption persistence via `config.txt`.
+- **`ensure_lightbox_htaccess()`** writes and updates the Apache `.htaccess` block.
+- **`atomic_write()`** is used for all file writes to avoid partial writes.
 
-### Lightbox v0.10
+### Environment variables
 
-- Added a visible Clean URLs setting under Admin Mode > General Settings > URLs
-  & SEO.
-- When Clean URLs are enabled on Apache-compatible servers, Lightbox now creates
-  or updates its own marked `.htaccess` block when possible, while preserving
-  existing rules outside that block.
-- Query-string URLs remain available as fallbacks, and non-Apache servers can
-  still use manual rewrite rules.
+| Variable | Required | Description |
+|---|---|---|
+| `LIGHTBOX_ADMIN_PASSWORD_FILE` | No | Path to store the admin password hash. Defaults to `.lightbox_admin_password.php` beside `index.php`. |
+| `LIGHTBOX_GOOGLE_API_KEY` | No | Google AI (Gemini) API key for AI caption generation. |
 
-### Lightbox v0.9
+Variables can be set as real environment variables or in a `.env` file beside `index.php`.
 
-- Added inline timeline sparklines to Analytics cards and traffic/engagement
-  values, using the selected Last 7 Days or Last 30 Days range.
-- New image uploads are inserted at the front of the album order, and newly
-  created albums are promoted to the front of the overview.
-- Rebuilt the curated-series grid so desktop uses three tiles per row, mobile
-  uses two tiles per row, and incomplete final rows are centered.
-- Fixed the All Photos series strip so it follows the same desktop and mobile
-  tile wrapping rules as the home page.
-- Expanded album descriptions to full mobile width while keeping the narrower
-  desktop layout.
-- Added extra vertical spacing between album titles and descriptions when an
-  album description exists.
+---
+
+## Release notes
+
+### v0.11
+- AI caption generation via Google Gemini. Per-image editor in the lightbox and batch editor page (**Album Captions**).
+- Caption display on album thumbnails in admin mode.
+- Captions used as `alt` text on tiles and in the lightbox.
+- Clean URL rewrite probe. Verifies routing works before enabling. Reverts and warns if not.
+- Caption flash fix. Captions are now visible instantly when opening the lightbox.
+- Logout returns to the current page instead of the home page.
+
+### v0.10
+- Added Clean URLs setting under Admin Mode → General Settings → URLs & SEO.
+- Lightbox now writes and updates its own `.htaccess` block on Apache automatically.
+- Query-string URLs remain available as fallbacks.
+
+### v0.9
+- Inline timeline sparklines on analytics cards.
+- New uploads inserted at the front of album order.
+- Rebuilt series grid: 3 columns desktop, 2 columns mobile, centered final row.
+- Expanded album descriptions to full mobile width.
+
+---
 
 ## License
 
-Lightbox is distributed under the Apache License 2.0. See `LICENSE`.
+Apache License 2.0. See `LICENSE`.
 
-This software is provided without guarantees. Use it at your own risk, review
-the code and server configuration before deploying it, and keep backups of your
-gallery data. Chris Marquardt cannot be held responsible for damage, data loss,
-security issues, downtime, or anything else that happens to your system.
+Created by Chris Marquardt. Built with AI-assisted coding. Provided without guarantees. Review the code and server configuration before deploying, and keep backups of your gallery data.

@@ -883,6 +883,14 @@ if (isset($_GET['caption_editor'])) {
     if ($ca !== null && is_dir(IMG_DIR . '/' . $ca) && images_in($ca)) { page_caption_editor($ca); exit; }
     http_response_code(404); exit;
 }
+if (isset($_GET['impressum'])) {
+    if (legal_page_file('impressum')) { page_legal('impressum'); exit; }
+    http_response_code(404); exit;
+}
+if (isset($_GET['privacy'])) {
+    if (legal_page_file('privacy')) { page_legal('privacy'); exit; }
+    http_response_code(404); exit;
+}
 
 header('Cache-Control: no-cache, must-revalidate');
 
@@ -1018,6 +1026,8 @@ function apply_clean_route(): void {
         $_GET['rewrite_check'] = '1';
         return;
     }
+    if (count($raw_parts) === 1 && $raw_parts[0] === 'impressum') { $_GET['impressum'] = '1'; return; }
+    if (count($raw_parts) === 1 && $raw_parts[0] === 'privacy') { $_GET['privacy'] = '1'; return; }
     if ($_GET) return;
     $parts = clean_route_segments_from_path($route_path);
     if (!$parts) return;
@@ -3112,7 +3122,8 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 #sm-head button{background:none;border:none;color:#fff;font-size:1.35rem;cursor:pointer;opacity:.4;padding:0;line-height:1}
 #sm-head button:hover{opacity:1}
 #sm-body{padding:24px 26px 30px}
-.sm-group:first-child .sm-section-head{border-top:none;margin-top:0;padding-top:0}
+.sm-version{font-size:.68rem;opacity:.35;text-align:right;letter-spacing:.05em;margin-bottom:16px}
+#sm-body hr{border:none;border-top:1px solid #2a2a2a;margin:8px 0 0}
 .sm-group summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}
 .sm-group summary::-webkit-details-marker{display:none}
 .sm-group summary::before{content:'▶';font-size:.62rem;transition:transform .2s;display:inline-block}
@@ -3131,7 +3142,7 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .bg-swatch-grey{background:#888;border-color:#000}
 .bg-swatch-white{background:#fff;border-color:#000}
 .bg-swatch-default{background:linear-gradient(135deg,transparent 0 45%,currentColor 45% 55%,transparent 55% 100%);border-color:#777}
-.sm-section-head{font-size:.78rem;letter-spacing:.1em;font-weight:700;opacity:.5;padding:22px 0 10px;border-top:1px solid #1e1e1e;margin-top:8px}
+.sm-section-head{font-size:.78rem;letter-spacing:.1em;font-weight:700;opacity:.5;padding:14px 0 10px}
 .sm-section-desc{font-size:.76rem;line-height:1.5;letter-spacing:normal;text-transform:none;opacity:.5;margin:-2px 0 16px}
 .sm-readonly{font-size:.82rem;font-weight:700;letter-spacing:.08em}
 .sm-action-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
@@ -3165,6 +3176,11 @@ body.lb-lock .float-back{opacity:0;visibility:hidden;pointer-events:none}
 .series-desc{margin-bottom:32px;line-height:1.6;text-transform:none;letter-spacing:normal}
 .series-desc p{margin-bottom:.75em}
 .markdown-content a,.series-mehr a{text-decoration:underline;text-decoration-color:#888;text-decoration-thickness:1px;text-underline-offset:.16em}
+.legal-footer{text-align:center;padding:40px 20px 28px;font-size:.68rem;letter-spacing:.1em;font-weight:700;opacity:.35}
+.legal-footer a{color:inherit;text-decoration:none}
+.legal-footer a:hover{opacity:.7}
+.legal-content{max-width:720px;margin:40px auto 60px;padding:0 20px;line-height:1.7;font-size:.9rem;letter-spacing:normal;text-transform:none}
+.legal-lang-sep{margin:3rem 0;opacity:.25}
 .vis-btn{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.55);border:none;color:#fff;cursor:pointer;padding:3px 5px;line-height:1;z-index:3;display:flex;align-items:center}
 .vis-btn:hover{background:rgba(0,0,0,.85)}
 .tile-hidden{opacity:.3}
@@ -3315,7 +3331,8 @@ if ($_bg === '#fff') {
          . '#sm-head button{color:#111}'
          . '.sm-input{background:#fff;color:#111;border-color:#ccc}'
          . '.sm-input:focus{border-color:#666}'
-         . '.sm-section-head{border-color:#e5e5e5;color:#333}'
+         . '.sm-section-head{color:#333}'
+         . '#sm-body hr{border-color:#ddd}'
          . '.sm-section-desc{color:#333}'
          . '#sm-save{background:#000;color:#fff}'
          . '#sm-save:hover{background:#222}'
@@ -3773,7 +3790,47 @@ function bi_html(string $de_html, string $en_html): string {
 }
 
 function html_foot(): void {
+    $links = [];
+    if (legal_page_file('impressum')) $links[] = '<a href="' . htmlspecialchars(clean_urls_enabled() ? public_url('impressum') : public_url('?impressum=1')) . '">Impressum</a>';
+    if (legal_page_file('privacy'))   $links[] = '<a href="' . htmlspecialchars(clean_urls_enabled() ? public_url('privacy') : public_url('?privacy=1')) . '">Privacy</a>';
+    if ($links) echo '<footer class="legal-footer">' . implode(' | ', $links) . '</footer>';
     echo '</body></html>';
+}
+
+function legal_page_file(string $name): ?string {
+    static $cache = [];
+    if (!isset($cache[$name])) {
+        $map = ['impressum' => 'IMPRESSUM.md', 'privacy' => 'PRIVACY.md'];
+        $path = isset($map[$name]) ? __DIR__ . '/' . $map[$name] : null;
+        $cache[$name] = ($path && is_file($path)) ? $path : null;
+    }
+    return $cache[$name];
+}
+
+function page_legal(string $which): void {
+    $path = legal_page_file($which);
+    if ($path === null) { http_response_code(404); exit; }
+    $label = $which === 'impressum' ? 'Impressum' : 'Privacy';
+    $settings = load_settings();
+    $site_title = lf($settings, 'site_title') ?: DEFAULT_SITE_DESC;
+    $md = str_replace(["\r\n", "\r"], "\n", (string)@file_get_contents($path));
+    // Split into EN (top) and DE (bottom) at the first `---` separator line.
+    $sep = preg_split('/^---\s*$/m', $md, 2);
+    $en_html = parse_markdown(trim($sep[0]));
+    $de_html  = isset($sep[1]) ? parse_markdown(trim($sep[1])) : '';
+    html_head($label . ' — ' . htmlspecialchars($site_title), '');
+    echo '<nav class="nav" id="page-nav">';
+    echo '<a class="nav-back" href="' . htmlspecialchars(public_url()) . '"><span class="nav-title">' . site_title_html() . '</span></a>';
+    echo '</nav>';
+    echo '<div class="legal-content markdown-content">';
+    echo $en_html;
+    if ($de_html !== '') {
+        echo '<hr class="legal-lang-sep">';
+        echo $de_html;
+    }
+    echo '</div>';
+    if (is_admin()) { admin_bar_html(); settings_modal(albums()); }
+    html_foot();
 }
 
 function ensure_gallery_readme(): void {
@@ -4744,11 +4801,10 @@ function settings_modal(array $albs): void {
   <div id="sm-panel">
     <div id="sm-head"><span>General Settings</span><button onclick="settingsClose()">&#10005;</button></div>
     <div id="sm-body">
+      <div class="sm-version">Lightbox <?= htmlspecialchars(APP_VERSION) ?></div>
       <details id="sm-group-site" class="sm-group" data-default-open="1" open>
         <summary class="sm-section-head">Site</summary>
         <p class="sm-section-desc">Titles used in navigation, metadata, and optional language variants.</p>
-        <div class="sm-row"><label class="sm-label">Version</label>
-          <div class="sm-readonly"><?= htmlspecialchars(APP_VERSION) ?></div></div>
         <div class="sm-row"><label class="sm-label">Multilingual</label>
           <label class="sm-check"><input type="checkbox" id="sm-ml" value="1"<?= $multi ? ' checked' : '' ?> onchange="settingsLangToggle()"><span>Use two languages</span></label></div>
         <div class="sm-row sm-ml-row"<?= $lang_style ?>><label class="sm-label">Language Label</label>
@@ -4790,6 +4846,7 @@ function settings_modal(array $albs): void {
         <div class="sm-row"><label class="sm-label" id="sm-sources-en-label"><?= $en_sources_label ?></label>
           <input class="sm-input" id="sm-sources-label-en" value="<?= $sources_label_en ?>" maxlength="80"></div>
       </details>
+      <hr>
       <details id="sm-group-layout" class="sm-group" data-default-open="1" open>
         <summary class="sm-section-head">Layout</summary>
         <p class="sm-section-desc">Controls spacing and text sizes across the gallery. Changes take effect when you save and reload.</p>
@@ -4818,6 +4875,7 @@ function settings_modal(array $albs): void {
           <input class="sm-input" id="sm-spm" type="number" min="0" value="<?= $spm ?>"></div>
         <p class="sm-field-hint">Left and right padding for series pages on phone-sized screens.</p>
       </details>
+      <hr>
       <details id="sm-group-urls" class="sm-group" data-default-open="1" open>
         <summary class="sm-section-head">URLs & SEO</summary>
         <p class="sm-section-desc">Optional human-readable public links for series, albums, and shared photos.</p>
@@ -4825,9 +4883,10 @@ function settings_modal(array $albs): void {
           <label class="sm-check"><input type="checkbox" id="sm-clean-urls" value="1"<?= $clean_urls ? ' checked' : '' ?>><span>Use SEO clean URLs</span></label></div>
         <p class="sm-field-hint">Generates links such as <code>/series/name</code>, <code>/album/name</code>, and <code>/album/name/photo/photo-name</code>. On Apache-compatible servers, saving this setting writes or updates a marked Lightbox block in <code>.htaccess</code> when the gallery folder is writable. Query-string URLs keep working.</p>
       </details>
+      <hr>
       <details id="sm-group-images" class="sm-group" data-default-open="1" open>
         <summary class="sm-section-head">Image Generation</summary>
-        <p class="sm-section-desc">The gallery automatically creates two cached copies of each photo: a small thumbnail for the grid, and a larger display image for the lightbox. Your original photos are never modified. If you change the quality or size settings below, remove the existing cached images so they get regenerated with the new settings.</p>
+        <p class="sm-section-desc">The gallery creates two cached copies of each photo: a small thumbnail for the grid, and a larger display image for the lightbox. Your original photos are never modified. If you change these settings, delete the existing cached images so they regenerate with the new values.</p>
         <div class="sm-row"><label class="sm-label">Thumb Quality</label>
           <input class="sm-input" id="sm-tq" type="number" min="40" max="100" value="<?= $tq ?>"></div>
         <p class="sm-field-hint">JPEG quality for grid thumbnails (1–100). 85 is a good default — lower saves bandwidth but makes thumbnails look worse.</p>
@@ -4837,7 +4896,11 @@ function settings_modal(array $albs): void {
         <div class="sm-row"><label class="sm-label">Large Quality</label>
           <input class="sm-input" id="sm-dq" type="number" min="40" max="100" value="<?= $dq ?>"></div>
         <p class="sm-field-hint">JPEG quality for lightbox images (1–100). Can be slightly lower than thumbnail quality since the images are already displayed at full resolution.</p>
-        <p class="sm-section-desc" style="margin-top:18px">Thumbnails and display images are generated automatically when visitors browse your gallery, so you don't need to create them manually. Pre-generating them here just means the first visitor won't have to wait — a small improvement to their experience. If you run into display issues, you can delete the cached files and let them be rebuilt from scratch. Your original photos are never affected.</p>
+      </details>
+      <hr>
+      <details id="sm-group-cache" class="sm-group" data-default-open="1" open>
+        <summary class="sm-section-head">Cache Management</summary>
+        <p class="sm-section-desc">Thumbnails and display images are generated automatically when visitors browse your gallery. Pre-generating them here means the first visitor won't have to wait. If you run into display issues, delete the cached files and let them rebuild from scratch. Your original photos are never affected.</p>
         <div class="sm-img-btn-grid">
           <button class="sm-btn" onclick="smResetAllThumbs(this)"><?= icon_trash() ?>Remove All Thumbnails</button>
           <button class="sm-btn" onclick="smResetAllLarge(this)"><?= icon_trash() ?>Remove All Large Images</button>
@@ -4853,22 +4916,13 @@ function settings_modal(array $albs): void {
         </div>
         <div id="sm-missing-list" style="display:none;margin-top:12px;max-height:200px;font-size:.72rem;line-height:1.7;font-family:monospace"></div>
       </details>
+      <hr>
       <details id="sm-group-analytics" class="sm-group" data-default-open="1" open>
         <summary class="sm-section-head">Privacy & Analytics</summary>
         <p class="sm-section-desc">Local flat-file analytics. Stores anonymous visitor/session IDs, album/photo views, photo dwell time, and image load timing. No full IPs, user agents, cookies, or external services are logged.</p>
         <div class="sm-row"><label class="sm-label">Analytics</label>
           <label class="sm-check"><input type="checkbox" id="sm-analytics" value="1"<?= $analytics_enabled ? ' checked' : '' ?>><span>Collect anonymous local analytics</span></label></div>
         <p class="sm-field-hint">Data is stored in <code><?= htmlspecialchars(ANALYTICS_DIR) ?>/events-YYYY-MM-DD.jsonl</code> and <code><?= htmlspecialchars(ANALYTICS_DIR) ?>/image-loads-YYYY-MM-DD.jsonl</code>. To reset analytics, delete those JSONL files.</p>
-      </details>
-      <details id="sm-group-appearance" class="sm-group" data-default-open="1" open>
-        <summary class="sm-section-head">Appearance</summary>
-        <p class="sm-section-desc">Default gallery background used by public pages.</p>
-        <div class="sm-row"><label class="sm-label">Background</label>
-          <div class="bg-choice-row" role="radiogroup" aria-label="Background">
-            <label class="bg-choice"><input type="radio" name="sm-bg" value="#000"<?= $bg === '#000' ? ' checked' : '' ?>><span class="bg-swatch bg-swatch-black" aria-hidden="true"></span><span>Black</span></label>
-            <label class="bg-choice"><input type="radio" name="sm-bg" value="#888"<?= $bg === '#888' ? ' checked' : '' ?>><span class="bg-swatch bg-swatch-grey" aria-hidden="true"></span><span>Grey</span></label>
-            <label class="bg-choice"><input type="radio" name="sm-bg" value="#fff"<?= $bg === '#fff' ? ' checked' : '' ?>><span class="bg-swatch bg-swatch-white" aria-hidden="true"></span><span>White</span></label>
-          </div></div>
       </details>
       <button id="sm-save" onclick="settingsSave()">Save Settings</button>
     </div>
@@ -4968,7 +5022,6 @@ function settingsLangToggle(){
   if(sourcesEn)sourcesEn.textContent=on?'Sources Label (EN)':'Sources Label';
 }
 function settingsSave(){
-  var bg=document.querySelector('input[name="sm-bg"]:checked');
   var ml=document.getElementById('sm-ml');
   var siteTitle=document.getElementById('sm-title').value;
   var siteTitleEn=document.getElementById('sm-title-en').value;
@@ -5030,8 +5083,7 @@ function settingsSave(){
     display_long_edge:document.getElementById('sm-dle').value,
     display_quality:document.getElementById('sm-dq').value,
     analytics_enabled:document.getElementById('sm-analytics').checked?'1':'0',
-    clean_urls:document.getElementById('sm-clean-urls').checked?'1':'0',
-    bg_color:bg?bg.value:'#fff'
+    clean_urls:document.getElementById('sm-clean-urls').checked?'1':'0'
   };
   var btn=document.getElementById('sm-save');
   smPost('?save_settings=1',b).then(function(r){return r.json().catch(function(){return {ok:r.ok};});}).then(function(j){
@@ -5765,27 +5817,54 @@ function parse_markdown(string $md): string {
     $lines = explode("\n", $md);
     $out   = '';
     $para  = [];
-    $flush = function () use (&$para, &$out) {
+    $list  = [];
+    $list_tag = 'ul';
+    $inline = function (string $t): string {
+        $t = preg_replace('/\*\*(.+?)\*\*/', '<strong>$1</strong>', $t);
+        $t = preg_replace('/\*(.+?)\*/', '<em>$1</em>', $t);
+        $t = preg_replace('/\[([^\]]+)\]\(([^)]+)\)/', '<a href="$2">$1</a>', $t);
+        return $t;
+    };
+    $flush_list = function () use (&$list, &$list_tag, &$out, $inline) {
+        if (!$list) return;
+        $out .= '<' . $list_tag . '>';
+        foreach ($list as $item) $out .= '<li>' . $inline(htmlspecialchars($item)) . '</li>';
+        $out .= '</' . $list_tag . '>' . "\n";
+        $list = [];
+    };
+    $flush_para = function () use (&$para, &$out, $inline) {
         if (!$para) return;
-        $text = htmlspecialchars(implode(' ', $para));
-        $text = preg_replace('/\*\*(.+?)\*\*/', '<strong>$1</strong>', $text);
-        $text = preg_replace('/\*(.+?)\*/', '<em>$1</em>', $text);
-        $text = preg_replace('/\[([^\]]+)\]\(([^)]+)\)/', '<a href="$2">$1</a>', $text);
-        $out .= '<p>' . $text . '</p>' . "\n";
+        $parts = [];
+        foreach ($para as $i => $raw) {
+            $br   = (substr($raw, -2) === '  ') && ($i < count($para) - 1);
+            $parts[] = $inline(htmlspecialchars(rtrim($raw))) . ($br ? '<br>' : '');
+        }
+        $out .= '<p>' . implode("\n", $parts) . '</p>' . "\n";
         $para = [];
     };
     foreach ($lines as $line) {
         if (preg_match('/^(#{1,3})\s+(.+)/', $line, $m)) {
-            $flush();
+            $flush_para(); $flush_list();
             $lv   = strlen($m[1]);
-            $out .= '<h' . $lv . '>' . htmlspecialchars($m[2]) . '</h' . $lv . '>' . "\n";
+            $out .= '<h' . $lv . '>' . $inline(htmlspecialchars($m[2])) . '</h' . $lv . '>' . "\n";
+        } elseif (preg_match('/^[-*_]{3,}\s*$/', $line)) {
+            $flush_para(); $flush_list();
+            $out .= '<hr>' . "\n";
+        } elseif (preg_match('/^[-*]\s+(.+)/', $line, $m)) {
+            $flush_para();
+            if ($list_tag !== 'ul') $flush_list();
+            $list_tag = 'ul'; $list[] = $m[1];
+        } elseif (preg_match('/^\d+\.\s+(.+)/', $line, $m)) {
+            $flush_para();
+            if ($list_tag !== 'ol') $flush_list();
+            $list_tag = 'ol'; $list[] = $m[1];
         } elseif (trim($line) === '') {
-            $flush();
+            $flush_para(); $flush_list();
         } else {
-            $para[] = trim($line);
+            $flush_list(); $para[] = $line;
         }
     }
-    $flush();
+    $flush_para(); $flush_list();
     return $out;
 }
 
@@ -5801,13 +5880,6 @@ function new_series_modal_html(): void {
     echo '<input id="ns-title" type="text" maxlength="200" placeholder="Series title"' . $primary_style . '>';
     echo '<p class="an-label" style="margin-top:10px">' . $title_en_label . '</p>';
     echo '<input id="ns-title-en" type="text" maxlength="200" placeholder="Series title">';
-    echo '<p class="an-label" style="margin-top:14px">Background</p>';
-    echo '<div class="bg-choice-row" role="radiogroup" aria-label="Series background">';
-    echo '<label class="bg-choice"><input type="radio" name="ns-bg" value=""' . $chk('') . '><span class="bg-swatch bg-swatch-default" aria-hidden="true"></span><span>Default</span></label>';
-    echo '<label class="bg-choice"><input type="radio" name="ns-bg" value="#000"><span class="bg-swatch bg-swatch-black" aria-hidden="true"></span><span>Black</span></label>';
-    echo '<label class="bg-choice"><input type="radio" name="ns-bg" value="#888"><span class="bg-swatch bg-swatch-grey" aria-hidden="true"></span><span>Grey</span></label>';
-    echo '<label class="bg-choice"><input type="radio" name="ns-bg" value="#fff"><span class="bg-swatch bg-swatch-white" aria-hidden="true"></span><span>White</span></label>';
-    echo '</div>';
     echo '<p class="ns-help">Create the series first. Then open an album, turn on Series Selection Mode, and check this series on the images you want to include.</p>';
     echo '<p class="ns-error" id="ns-error"></p>';
     echo '<div class="an-btns"><button onclick="newSeriesClose()">Cancel</button><button class="an-save" onclick="newSeriesCreate()">Create Series</button></div>';
@@ -5831,11 +5903,10 @@ function newSeriesCreate(){
   var titleEn=document.getElementById('ns-title-en').value.trim();
   if(NS_MULTI){if(!title&&!titleEn){newSeriesError('Please enter a series title.');return;}}
   else{if(!titleEn){newSeriesError('Please enter a series title.');return;}if(!title)title=titleEn;}
-  var bg=document.querySelector('input[name="ns-bg"]:checked');
   fetch('?create_series=1',{
     method:'POST',
     headers:{'X-CSRF-Token':NS_CSRF},
-    body:new URLSearchParams({title:title,title_en:titleEn,bg_color:bg?bg.value:''})
+    body:new URLSearchParams({title:title,title_en:titleEn})
   }).then(function(r){return r.json().catch(function(){return {ok:false,error:'Could not create series.'};});})
     .then(function(j){if(j.ok&&j.edit){location.href=j.edit;}else{newSeriesError(j.error||'Could not create series.');}});
 }
@@ -6408,14 +6479,6 @@ function page_series_editor(string $id): void {
     echo '<textarea id="se-desc" placeholder="# Heading&#10;&#10;Description text..."' . $primary_style . '>' . $sdesc . '</textarea>';
     echo '<label class="se-field-label">' . $desc_en_label . '</label>';
     echo '<textarea id="se-desc-en" placeholder="# Heading&#10;&#10;Description text...">' . $sdesc_en . '</textarea>';
-    $chk = function(string $val) use ($sbg) { return $val === $sbg ? ' checked' : ''; };
-    echo '<label class="se-field-label">Background</label>';
-    echo '<div class="bg-choice-row" role="radiogroup" aria-label="Series background">';
-    echo '<label class="bg-choice"><input type="radio" name="se-bg" value=""' . $chk('') . '><span class="bg-swatch bg-swatch-default" aria-hidden="true"></span><span>Default</span></label>';
-    echo '<label class="bg-choice"><input type="radio" name="se-bg" value="#000"' . $chk('#000') . '><span class="bg-swatch bg-swatch-black" aria-hidden="true"></span><span>Black</span></label>';
-    echo '<label class="bg-choice"><input type="radio" name="se-bg" value="#888"' . $chk('#888') . '><span class="bg-swatch bg-swatch-grey" aria-hidden="true"></span><span>Grey</span></label>';
-    echo '<label class="bg-choice"><input type="radio" name="se-bg" value="#fff"' . $chk('#fff') . '><span class="bg-swatch bg-swatch-white" aria-hidden="true"></span><span>White</span></label>';
-    echo '</div>';
     $se_captions_checked = !empty($series['captions']) ? ' checked' : '';
     echo '<label class="sm-check" style="display:inline-flex;margin-top:12px"><input type="checkbox" id="se-captions"' . $se_captions_checked . '> Display captions</label>';
     echo '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">';
@@ -6474,7 +6537,6 @@ function seCopyLink(btn){
 }
 function seSave(){
   var order=Array.from(document.querySelectorAll('#gallery .tile')).map(function(t){return t.dataset.file;}).filter(Boolean);
-  var bg=document.querySelector('input[name="se-bg"]:checked');
   var title=document.getElementById('se-title').value;
   var titleEn=document.getElementById('se-title-en').value;
   var desc=document.getElementById('se-desc').value;
@@ -6484,7 +6546,7 @@ function seSave(){
   fetch('?save_series=1',{
     method:'POST',
     headers:{'X-CSRF-Token':SE_CSRF},
-    body:new URLSearchParams({id:SE_ID,title:title,title_en:titleEn,description:desc,description_en:descEn,bg_color:bg?bg.value:'',order:order.join(','),captions:caps&&caps.checked?'1':'0'})
+    body:new URLSearchParams({id:SE_ID,title:title,title_en:titleEn,description:desc,description_en:descEn,order:order.join(','),captions:caps&&caps.checked?'1':'0'})
   }).then(function(r){if(r.ok)location.href=SE_SERIES_URL;});
 }
 function seRemove(btn){var tile=btn.closest('.tile');if(tile)tile.remove();}
