@@ -3789,6 +3789,14 @@ function bi_html(string $de_html, string $en_html): string {
          . '<div class="t-en">' . $en_html . '</div>';
 }
 
+function page_theme_style(): void {
+    $s  = load_settings();
+    $d  = default_settings();
+    $bg = in_array($s['bg_color'] ?? '', ['#000', '#888', '#fff'], true) ? $s['bg_color'] : $d['bg_color'];
+    $fg = ($bg === '#fff') ? '#111' : '#fff';
+    echo '<style>html,body{background:' . $bg . ';color:' . $fg . '}</style>' . "\n";
+}
+
 function html_foot(): void {
     $links = [];
     if (legal_page_file('impressum')) $links[] = '<a href="' . htmlspecialchars(clean_urls_enabled() ? public_url('impressum') : public_url('?impressum=1')) . '">Impressum</a>';
@@ -3819,6 +3827,7 @@ function page_legal(string $which): void {
     $en_html = parse_markdown(trim($sep[0]));
     $de_html  = isset($sep[1]) ? parse_markdown(trim($sep[1])) : '';
     html_head($label . ' — ' . htmlspecialchars($site_title), '');
+    page_theme_style();
     echo '<nav class="nav" id="page-nav">';
     echo '<a class="nav-back" href="' . htmlspecialchars(public_url()) . '"><span class="nav-title">' . site_title_html() . '</span></a>';
     echo '</nav>';
