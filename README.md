@@ -177,6 +177,30 @@ Enable under **Admin Mode → General Settings → Privacy & Analytics**. Events
 
 Reset by deleting `analytics/events-*.jsonl` and `analytics/image-loads-*.jsonl`.
 
+### Legal pages (Impressum / Privacy)
+
+Place `IMPRESSUM.md` and/or `PRIVACY.md` beside `index.php` on the server. Lightbox detects them automatically and adds footer links to every page. The pages are served at `/impressum` and `/privacy` (or `?impressum=1` / `?privacy=1` without clean URLs).
+
+The files are not part of the repository and should be managed directly on the server — they contain personal contact and address information.
+
+Both files support bilingual content. Write German at the top, add a `---` separator line, then write the English version below:
+
+```markdown
+# Impressum
+
+German content...
+
+---
+
+# Legal Notice
+
+English content...
+```
+
+Standard Markdown formatting works in both sections: headings (`#`, `##`), bold (`**text**`), italic (`*text*`), links (`[text](url)`), lists (`- item`), and horizontal rules (`---` on its own line between sections only).
+
+For addresses and other line-by-line content, end each line with two spaces to force a line break.
+
 ---
 
 ## Updating
